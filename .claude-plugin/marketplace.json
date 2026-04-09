@@ -1,9 +1,24 @@
 {
-  "name": "composto",
-  "displayName": "Composto",
-  "description": "Proactive AI team companion — scans your codebase, finds issues, tracks health trends, and sends meaning instead of code to LLMs.",
-  "version": "0.1.0",
-  "author": "Mert Can Altin",
-  "tags": ["ai", "coding", "proactive", "health", "ir"],
-  "repository": "https://github.com/mertcanaltin/composto"
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "composto-marketplace",
+  "description": "Composto plugin marketplace — proactive AI team companion",
+  "owner": {
+    "name": "Mert Can Altin",
+    "email": "mertcanaltin01@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "composto",
+      "description": "Proactive AI team companion — less tokens, more insight. Health-Aware IR, Watcher Engine, Trend Analysis.",
+      "category": "development",
+      "source": {
+        "source": "./"
+      },
+      "homepage": "https://github.com/mertcanaltin/composto",
+      "author": {
+        "name": "Mert Can Altin",
+        "email": "mertcanaltin01@gmail.com"
+      }
+    }
+  ]
 }
