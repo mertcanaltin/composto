@@ -2,6 +2,9 @@
   "name": "composto",
   "version": "0.1.0",
   "description": "Proactive AI team companion — less tokens, more insight. Health-Aware IR, Watcher Engine, Trend Analysis.",
-  "author": "Mert Can Altin",
+  "author": {
+    "name": "Mert Can Altin",
+    "email": "mertcanaltin01@gmail.com"
+  },
   "homepage": "https://github.com/mertcanaltin/composto"
 }
