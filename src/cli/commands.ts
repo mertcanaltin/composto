@@ -10,6 +10,7 @@ import { detectDecay } from "../trends/decay.js";
 import { detectInconsistencies } from "../trends/inconsistency.js";
 import { route, DEFAULT_ROUTES } from "../router/router.js";
 import { CLIAdapter } from "./adapter.js";
+import { benchmarkFile, summarize } from "../benchmark/runner.js";
 import type { TrendAnalysis, Finding } from "../types.js";
 
 function collectFiles(dir: string, extensions: string[]): string[] {
@@ -108,4 +109,52 @@ export function runIR(projectPath: string, filePath: string, layer: string): voi
   });
 
   console.log(result);
+}
+
+export function runBenchmark(projectPath: string): void {
+  console.log("composto v0.1.0 — benchmark\n");
+
+  const files = collectFiles(projectPath, [".ts", ".tsx", ".js", ".jsx"]);
+  console.log(`  ${files.length} files\n`);
+
+  const results = files.map((file) => {
+    const code = readFileSync(file, "utf-8");
+    const relPath = relative(projectPath, file);
+    return benchmarkFile(code, relPath);
+  });
+
+  results.sort((a, b) => b.savedPercent - a.savedPercent);
+
+  const header = "  File                                  Raw      L0      L1   Saved   Conf";
+  const divider = "  " + "─".repeat(header.length - 2);
+
+  console.log(header);
+  console.log(divider);
+
+  for (const r of results) {
+    const file = r.file.length > 38 ? "…" + r.file.slice(-37) : r.file.padEnd(38);
+    const raw = String(r.rawTokens).padStart(5);
+    const l0 = String(r.irL0Tokens).padStart(7);
+    const l1 = String(r.irL1Tokens).padStart(7);
+    const saved = (r.savedPercent.toFixed(1) + "%").padStart(7);
+    const conf = r.avgConfidence.toFixed(2).padStart(6);
+    console.log(`  ${file} ${raw} ${l0} ${l1} ${saved} ${conf}`);
+  }
+
+  const summary = summarize(results);
+  console.log(divider);
+  const totalLabel = "TOTAL".padEnd(38);
+  const totalRaw = String(summary.totalRaw).padStart(5);
+  const totalL0 = String(summary.totalIRL0).padStart(7);
+  const totalL1 = String(summary.totalIRL1).padStart(7);
+  const totalSaved = (summary.totalSavedPercent.toFixed(1) + "%").padStart(7);
+  const totalConf = summary.avgConfidence.toFixed(2).padStart(6);
+  console.log(`  ${totalLabel} ${totalRaw} ${totalL0} ${totalL1} ${totalSaved} ${totalConf}`);
+
+  const l0Percent = summary.totalRaw > 0 ? ((summary.totalRaw - summary.totalIRL0) / summary.totalRaw) * 100 : 0;
+
+  console.log(`\n  L0 (structure map):  ${summary.totalRaw} → ${summary.totalIRL0} tokens (${l0Percent.toFixed(1)}% reduction)`);
+  console.log(`  L1 (full IR):        ${summary.totalRaw} → ${summary.totalIRL1} tokens (${summary.totalSavedPercent.toFixed(1)}% reduction)`);
+  console.log(`  Files analyzed: ${summary.fileCount}`);
+  console.log(`  Avg confidence: ${summary.avgConfidence.toFixed(2)}`);
 }

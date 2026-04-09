@@ -1,4 +1,4 @@
-import { runScan, runTrends, runIR } from "./cli/commands.js";
+import { runScan, runTrends, runIR, runBenchmark } from "./cli/commands.js";
 import { resolve } from "node:path";
 
 const args = process.argv.slice(2);
@@ -25,6 +25,11 @@ switch (command) {
     runIR(resolve("."), resolve(filePath), layer);
     break;
   }
+  case "benchmark": {
+    const projectPath = resolve(args[1] ?? ".");
+    runBenchmark(projectPath);
+    break;
+  }
   case "version":
     console.log("composto v0.1.0");
     break;
@@ -34,6 +39,7 @@ switch (command) {
     console.log("  scan [path]          Scan codebase for issues");
     console.log("  trends [path]        Analyze codebase health trends");
     console.log("  ir <file> [layer]    Generate IR for a file (L0|L1|L2|L3)");
+    console.log("  benchmark [path]     Benchmark IR token savings");
     console.log("  version              Show version");
     break;
 }
