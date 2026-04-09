@@ -1,0 +1,31 @@
+watchers:
+  security:
+    enabled: true
+    severity:
+      "src/**": warning
+      "tests/**": info
+  deadCode:
+    enabled: true
+    trigger: on-commit
+  consoleLog:
+    enabled: true
+    severity:
+      "src/**": warning
+      "tests/**": info
+
+agents:
+  fixer:
+    enabled: true
+    model: haiku
+
+ir:
+  deltaContextLines: 3
+  confidenceThreshold: 0.6
+  genericPatterns: default
+
+trends:
+  enabled: true
+  hotspotThreshold: 10
+  bugFixRatioThreshold: 0.5
+  decayCheckTrigger: on-commit
+  fullReportSchedule: weekly
