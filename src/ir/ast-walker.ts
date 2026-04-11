@@ -248,20 +248,24 @@ function emitTier3(node: SyntaxNode): string | null {
       const value = declarator.childForFieldName("value");
 
       if (value) {
+        // Arrow functions are important — they define behavior
         if (value.type === "arrow_function") {
           const asyncPrefix = isAsync(value) ? "ASYNC " : "";
           const params = value.childForFieldName("parameters")?.text ?? "()";
           return `${asyncPrefix}FN:${name}${collapseText(params, 60)} => ...`;
         }
+        // Await expressions are important — they show async dependencies
         if (value.type === "await_expression") {
           const callee = value.childCount > 1 ? value.child(1)!.text : "...";
           return `AWAIT:VAR:${name} = ${collapseText(callee, 50)}`;
         }
-        // Strip string literal contents to avoid noise
+        // Regular variables inside function bodies are noise — drop them
+        // Only keep top-level (module scope) variable declarations
+        if (node.parent?.type === "statement_block") return null;
         const valText = value.text.replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''").replace(/`[^`]*`/g, "``");
         return `VAR:${name} = ${collapseText(valText, 50)}`;
       }
-      return `VAR:${name}`;
+      return null;
     }
 
     case "expression_statement": {
@@ -286,11 +290,7 @@ function emitTier3(node: SyntaxNode): string | null {
         return `CALL:${collapseText(callee, 50)}`;
       }
 
-      if (expr.type === "assignment_expression") {
-        const left = expr.childForFieldName("left")?.text ?? "?";
-        return `${left} = ...`;
-      }
-
+      // Assignment expressions and other expression statements are noise — drop them
       return null;
     }
 
@@ -321,6 +321,9 @@ function walkNode(node: SyntaxNode, depth: number, lines: string[]): void {
     }
 
     case "T2_CONTROL": {
+      // Limit depth — beyond 4, only keep returns, case labels, and throw
+      const keepDeep = ["return_statement", "switch_case", "switch_default", "throw_statement"];
+      if (depth > 4 && !keepDeep.includes(node.type)) break;
       const line = emitTier2(node);
       const indent = "  ".repeat(depth);
       if (line) lines.push(indent + line);

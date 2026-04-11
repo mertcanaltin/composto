@@ -112,11 +112,19 @@ describe("astWalkIR", () => {
   });
 
   describe("Tier 3 — compressible expressions", () => {
-    it("captures variable declarations", async () => {
+    it("drops ordinary variable declarations inside function bodies", async () => {
       const code = "function init() {\n  const config = loadConfig();\n  const port = 3000;\n}";
       const ir = await astWalkIR(code, "init.ts");
-      expect(ir).toContain("VAR:config");
-      expect(ir).toContain("VAR:port");
+      // Internal vars are noise — only arrow fns and await are kept
+      expect(ir).not.toContain("VAR:config");
+      expect(ir).not.toContain("VAR:port");
+      expect(ir).toContain("FN:init");
+    });
+
+    it("keeps module-level variable declarations", async () => {
+      const code = 'const API_URL = "https://api.example.com";\nfunction fetch() { return API_URL; }';
+      const ir = await astWalkIR(code, "config.ts");
+      expect(ir).toContain("VAR:API_URL");
     });
 
     it("captures top-level call expressions (non-collection methods)", async () => {
