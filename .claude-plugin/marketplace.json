@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "composto-marketplace",
-  "description": "Composto plugin marketplace — proactive AI team companion",
+  "description": "AST-powered code compression for LLMs",
   "owner": {
     "name": "Mert Can Altin",
     "email": "mertgold60@gmail.com"
@@ -9,14 +9,22 @@
   "plugins": [
     {
       "name": "composto",
-      "description": "Proactive AI team companion — less tokens, more insight. Health-Aware IR, Watcher Engine, Trend Analysis.",
+      "description": "Send 89% fewer tokens to your LLM, get the same understanding. AST-first IR engine with tree-sitter parsing, 4-tier node classification, budget-aware context packing, and security scanning.",
       "category": "development",
       "source": "./",
       "homepage": "https://github.com/mertcanaltin/composto",
       "author": {
         "name": "Mert Can Altin",
         "email": "mertgold60@gmail.com"
-      }
+      },
+      "keywords": [
+        "mcp",
+        "ast",
+        "compression",
+        "tokens",
+        "tree-sitter",
+        "code-context"
+      ]
     }
   ]
 }

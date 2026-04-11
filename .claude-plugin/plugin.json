@@ -1,10 +1,30 @@
 {
   "name": "composto",
-  "version": "0.1.0",
-  "description": "Proactive AI team companion — less tokens, more insight. Health-Aware IR, Watcher Engine, Trend Analysis.",
+  "version": "0.2.0",
+  "description": "AST-powered code compression for LLMs. Send 89% fewer tokens, get the same understanding. Parses your code with tree-sitter, keeps the signal, drops the noise.",
   "author": {
     "name": "Mert Can Altin",
     "email": "mertgold60@gmail.com"
   },
-  "homepage": "https://github.com/mertcanaltin/composto"
+  "homepage": "https://github.com/mertcanaltin/composto#readme",
+  "repository": "https://github.com/mertcanaltin/composto",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "ast",
+    "ir",
+    "compression",
+    "tokens",
+    "tree-sitter",
+    "code-context",
+    "llm"
+  ],
+  "mcpServers": {
+    "composto": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js"
+      ]
+    }
+  }
 }
