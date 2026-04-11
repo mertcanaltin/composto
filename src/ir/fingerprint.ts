@@ -91,6 +91,48 @@ const PATTERNS: Pattern[] = [
     transform: (m) => `CATCH:${m[1]}`,
     confidence: 0.9,
   },
+  // export const name = async (params) => {  OR  export const name = (params) => expr;
+  {
+    match: /^export\s+(?:const|let|var)\s+(\w+)\s*=\s*(async\s+)?\(([^)]*)\)\s*=>\s*(.*)$/,
+    transform: (m) => {
+      const asyncPrefix = m[2] ? "ASYNC " : "";
+      const body = m[4].replace(/[{;]\s*$/, "").trim();
+      return `OUT ${asyncPrefix}FN:${m[1]} = (${m[3].trim()}) => ${body || "{"}`;
+    },
+    confidence: 0.9,
+  },
+  // const name = async (params) => {  OR  const name = (params) => expr;
+  {
+    match: /^(?:const|let|var)\s+(\w+)\s*=\s*(async\s+)?\(([^)]*)\)\s*=>\s*(.*)$/,
+    transform: (m) => {
+      const asyncPrefix = m[2] ? "ASYNC " : "";
+      const body = m[4].replace(/[{;]\s*$/, "").trim();
+      return `${asyncPrefix}FN:${m[1]} = (${m[3].trim()}) => ${body || "{"}`;
+    },
+    confidence: 0.9,
+  },
+  // get name() {
+  {
+    match: /^\s*get\s+(\w+)\s*\(\)\s*(?::\s*\S+\s*)?\{?\s*$/,
+    transform: (m) => `GET:${m[1]}()`,
+    confidence: 0.9,
+  },
+  // set name(value) {
+  {
+    match: /^\s*set\s+(\w+)\s*\(([^)]*)\)\s*\{?\s*$/,
+    transform: (m) => `SET:${m[1]}(${m[2].replace(/\s/g, "")})`,
+    confidence: 0.9,
+  },
+  // methodName(params) {  (inside class body, indented)
+  {
+    match: /^\s*(?:async\s+)?(\w+)\s*\(([^)]*)\)\s*(?::\s*\S+\s*)?\{\s*$/,
+    transform: (m) => {
+      const name = m[1];
+      if (["if", "for", "while", "switch", "catch", "function"].includes(name)) return `${name}`;
+      return `METHOD:${name}(${m[2].replace(/\s/g, "")})`;
+    },
+    confidence: 0.9,
+  },
   // const [a, b] = expr (destructuring — before regular assignment)
   {
     match: /^(?:const|let|var)\s+\[([^\]]+)\]\s*=\s*(.+);?\s*$/,

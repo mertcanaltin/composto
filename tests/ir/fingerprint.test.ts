@@ -65,6 +65,42 @@ describe("fingerprintLine", () => {
     expect(fingerprintLine("// this is a comment").ir).toBe("");
     expect(fingerprintLine("/* block comment */").ir).toBe("");
   });
+
+  it("fingerprints named arrow functions", () => {
+    const result = fingerprintLine("const fetchUser = (id) => {");
+    expect(result.ir).toBe("FN:fetchUser = (id) => {");
+    expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it("fingerprints exported arrow functions", () => {
+    const result = fingerprintLine("export const handler = async (req, res) => {");
+    expect(result.ir).toBe("OUT ASYNC FN:handler = (req, res) => {");
+    expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it("fingerprints single-line arrow functions", () => {
+    const result = fingerprintLine("const double = (x) => x * 2;");
+    expect(result.ir).toBe("FN:double = (x) => x * 2");
+    expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it("fingerprints method definitions", () => {
+    const result = fingerprintLine("  handleClick(event) {");
+    expect(result.ir).toBe("METHOD:handleClick(event)");
+    expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it("fingerprints getter definitions", () => {
+    const result = fingerprintLine("  get fullName() {");
+    expect(result.ir).toBe("GET:fullName()");
+    expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+
+  it("fingerprints setter definitions", () => {
+    const result = fingerprintLine("  set fullName(value) {");
+    expect(result.ir).toBe("SET:fullName(value)");
+    expect(result.confidence).toBeGreaterThanOrEqual(0.9);
+  });
 });
 
 describe("fingerprintFile", () => {
