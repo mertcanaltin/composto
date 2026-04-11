@@ -5,7 +5,7 @@ import { detectLanguage } from "../parser/languages.js";
 export type Tier = "T1_KEEP" | "T2_CONTROL" | "T3_COMPRESS" | "T4_DROP" | "WALK_ONLY";
 
 const TIER_MAP: Record<string, Tier> = {
-  // Tier 1 — structural declarations
+  // Tier 1 — structural declarations (JS/TS)
   import_statement: "T1_KEEP",
   function_declaration: "T1_KEEP",
   class_declaration: "T1_KEEP",
@@ -13,31 +13,62 @@ const TIER_MAP: Record<string, Tier> = {
   type_alias_declaration: "T1_KEEP",
   enum_declaration: "T1_KEEP",
 
-  // Tier 2 — control flow
+  // Tier 1 — Python
+  function_definition: "T1_KEEP",
+  class_definition: "T1_KEEP",
+  import_from_statement: "T1_KEEP",
+  decorated_definition: "T1_KEEP",
+
+  // Tier 1 — Go
+  function_item: "T1_KEEP",       // Rust
+  method_declaration: "T1_KEEP",  // Go
+  type_declaration: "T1_KEEP",    // Go
+  import_declaration: "T1_KEEP",  // Go
+  use_declaration: "T1_KEEP",     // Rust
+  struct_item: "T1_KEEP",         // Rust
+  enum_item: "T1_KEEP",           // Rust
+  trait_item: "T1_KEEP",          // Rust
+  impl_item: "T1_KEEP",           // Rust
+
+  // Tier 2 — control flow (universal)
   if_statement: "T2_CONTROL",
+  if_expression: "T2_CONTROL",    // Rust
   else_clause: "WALK_ONLY",
+  elif_clause: "T2_CONTROL",      // Python
   for_statement: "T2_CONTROL",
   for_in_statement: "T2_CONTROL",
+  for_expression: "T2_CONTROL",   // Rust
   while_statement: "T2_CONTROL",
   do_statement: "T2_CONTROL",
   switch_statement: "T2_CONTROL",
   switch_case: "T2_CONTROL",
   switch_default: "T2_CONTROL",
+  match_expression: "T2_CONTROL", // Rust
   return_statement: "T2_CONTROL",
+  return_expression: "T2_CONTROL", // Rust
   throw_statement: "T2_CONTROL",
+  raise_statement: "T2_CONTROL",  // Python
   try_statement: "T2_CONTROL",
   catch_clause: "T2_CONTROL",
+  except_clause: "T2_CONTROL",    // Python
+  with_statement: "T2_CONTROL",   // Python
+  defer_statement: "T2_CONTROL",  // Go
 
   // Tier 3 — compressible expressions
   lexical_declaration: "T3_COMPRESS",
   expression_statement: "T3_COMPRESS",
+  assignment: "T3_COMPRESS",       // Python
+  short_var_declaration: "T3_COMPRESS", // Go
 
-  // Walk-only — containers that need traversal but no emission
+  // Walk-only — containers
   program: "WALK_ONLY",
+  module: "WALK_ONLY",            // Python
   statement_block: "WALK_ONLY",
-  class_body: "WALK_ONLY",
+  block: "WALK_ONLY",             // Python/Go/Rust
+  class_body: "WALK_ONLY",        // JS/TS
   switch_body: "WALK_ONLY",
   export_statement: "WALK_ONLY",
+  source_file: "WALK_ONLY",       // Go/Rust
 };
 
 function tierOf(nodeType: string): Tier {
@@ -165,6 +196,35 @@ function emitTier2(node: SyntaxNode): string | null {
       const paramText = param ? param.text : "...";
       return `CATCH:${paramText}`;
     }
+    // Python
+    case "raise_statement": {
+      const val = node.childCount > 1 ? node.child(1)?.text ?? "" : "";
+      return `RAISE:${val.length > 50 ? val.slice(0, 47) + "..." : val}`;
+    }
+    case "except_clause":
+      return "EXCEPT";
+    case "elif_clause": {
+      const cond = extractCondition(node);
+      return `ELIF:${cond}`;
+    }
+    case "with_statement":
+      return "WITH";
+    // Rust
+    case "if_expression": {
+      const cond = extractCondition(node);
+      return `IF:${cond}`;
+    }
+    case "for_expression":
+      return "LOOP";
+    case "match_expression":
+      return "MATCH";
+    case "return_expression": {
+      const val = node.childCount > 1 ? node.child(1)?.text ?? "" : "";
+      return `RET ${val.length > 60 ? val.slice(0, 57) + "..." : val}`.trimEnd();
+    }
+    // Go
+    case "defer_statement":
+      return "DEFER";
     default:
       return null;
   }
@@ -208,6 +268,50 @@ function emitTier1(node: SyntaxNode): string | null {
     case "enum_declaration": {
       const name = node.childForFieldName("name")?.text ?? "Anonymous";
       return `${outPrefix}ENUM:${name}`;
+    }
+
+    // Python
+    case "function_definition": {
+      const name = node.childForFieldName("name")?.text ?? "anonymous";
+      const params = node.childForFieldName("parameters")?.text ?? "()";
+      const returnType = node.childForFieldName("return_type")?.text ?? "";
+      const rt = returnType ? ` -> ${returnType}` : "";
+      return `FN:${name}${collapseText(params, 60)}${rt}`;
+    }
+    case "class_definition": {
+      const name = node.childForFieldName("name")?.text ?? "Anonymous";
+      const superclass = node.childForFieldName("superclasses")?.text ?? "";
+      const sc = superclass ? `(${collapseText(superclass, 40)})` : "";
+      return `CLASS:${name}${sc}`;
+    }
+    case "import_from_statement": {
+      return `USE:${collapseText(node.text, 80)}`;
+    }
+    case "decorated_definition": {
+      // Walk into the actual definition inside
+      return null; // WALK_ONLY behavior — children will be processed
+    }
+
+    // Go
+    case "method_declaration":
+    case "type_declaration":
+    case "import_declaration": {
+      return `${collapseText(node.text, 80)}`;
+    }
+
+    // Rust
+    case "function_item": {
+      const name = node.childForFieldName("name")?.text ?? "anonymous";
+      const params = node.childForFieldName("parameters")?.text ?? "()";
+      return `FN:${name}${collapseText(params, 60)}`;
+    }
+    case "struct_item":
+    case "enum_item":
+    case "trait_item":
+    case "impl_item":
+    case "use_declaration": {
+      const firstLine = node.text.split("\n")[0];
+      return collapseText(firstLine, 80);
     }
 
     default:
@@ -284,7 +388,18 @@ function emitTier3(node: SyntaxNode): string | null {
       }
 
       if (expr.type === "call_expression") {
-        // Drop all call expression statements — they add noise without structural value
+        // Capture runtime inheritance patterns — these are structurally important
+        const callee = expr.child(0)?.text ?? "";
+        if (callee === "ObjectSetPrototypeOf" || callee === "Object.setPrototypeOf") {
+          const args = expr.child(1); // arguments node
+          if (args && args.childCount >= 4) {
+            const child = args.child(1)?.text ?? "?";
+            const parent = args.child(3)?.text ?? "?";
+            const shortChild = child.length > 30 ? child.slice(0, 27) + "..." : child;
+            const shortParent = parent.length > 30 ? parent.slice(0, 27) + "..." : parent;
+            return `EXTENDS:${shortChild} < ${shortParent}`;
+          }
+        }
         return null;
       }
 
@@ -310,7 +425,10 @@ function walkNode(node: SyntaxNode, depth: number, lines: string[]): void {
         const childType = child.type;
         if (
           childType === "statement_block" ||
-          childType === "class_body"
+          childType === "class_body" ||
+          childType === "block" ||           // Python/Go/Rust
+          childType === "body" ||            // Python class/function body
+          childType === "declaration_list"   // Rust impl block
         ) {
           walkNode(child, depth + 1, lines);
         }

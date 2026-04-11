@@ -21,12 +21,14 @@ export function generateL0(code: string, filePath: string): string {
 }
 
 export async function generateL1(code: string, filePath: string, health: HealthAnnotation | null): Promise<string> {
-  // Try AST-based IR first, fall back to regex fingerprint
   const ir = await astWalkIR(code, filePath) ?? fingerprintFile(code, 0.75);
+  // Safety: if IR is larger than raw code, return raw code
+  // This happens with pure data files (symbols, constants) where IR adds prefixes
+  const result = ir.length < code.length ? ir : code;
   if (health) {
-    return annotateIR(ir, health);
+    return annotateIR(result, health);
   }
-  return ir;
+  return result;
 }
 
 export function generateL2(delta: DeltaContext, health: HealthAnnotation | null): string {
