@@ -131,7 +131,7 @@ export async function runBenchmark(projectPath: string): Promise<void> {
 
   results.sort((a, b) => b.savedPercent - a.savedPercent);
 
-  const header = "  File                                  Raw      L0      L1   Saved   Conf";
+  const header = "  File                                  Raw      L0      L1   Saved   Eng";
   const divider = "  " + "─".repeat(header.length - 2);
 
   console.log(header);
@@ -143,8 +143,8 @@ export async function runBenchmark(projectPath: string): Promise<void> {
     const l0 = String(r.irL0Tokens).padStart(7);
     const l1 = String(r.irL1Tokens).padStart(7);
     const saved = (r.savedPercent.toFixed(1) + "%").padStart(7);
-    const conf = r.avgConfidence.toFixed(2).padStart(6);
-    console.log(`  ${file} ${raw} ${l0} ${l1} ${saved} ${conf}`);
+    const eng = r.engine.padStart(5);
+    console.log(`  ${file} ${raw} ${l0} ${l1} ${saved} ${eng}`);
   }
 
   const summary = summarize(results);
@@ -154,15 +154,14 @@ export async function runBenchmark(projectPath: string): Promise<void> {
   const totalL0 = String(summary.totalIRL0).padStart(7);
   const totalL1 = String(summary.totalIRL1).padStart(7);
   const totalSaved = (summary.totalSavedPercent.toFixed(1) + "%").padStart(7);
-  const totalConf = summary.avgConfidence.toFixed(2).padStart(6);
-  console.log(`  ${totalLabel} ${totalRaw} ${totalL0} ${totalL1} ${totalSaved} ${totalConf}`);
+  console.log(`  ${totalLabel} ${totalRaw} ${totalL0} ${totalL1} ${totalSaved}`);
 
   const l0Percent = summary.totalRaw > 0 ? ((summary.totalRaw - summary.totalIRL0) / summary.totalRaw) * 100 : 0;
 
   console.log(`\n  L0 (structure map):  ${summary.totalRaw} → ${summary.totalIRL0} tokens (${l0Percent.toFixed(1)}% reduction)`);
   console.log(`  L1 (full IR):        ${summary.totalRaw} → ${summary.totalIRL1} tokens (${summary.totalSavedPercent.toFixed(1)}% reduction)`);
   console.log(`  Files analyzed: ${summary.fileCount}`);
-  console.log(`  Avg confidence: ${summary.avgConfidence.toFixed(2)}`);
+  console.log(`  Engine: ${summary.astCount} AST, ${summary.fpCount} FP`);
 }
 
 export async function runBenchmarkQuality(projectPath: string, filePath: string): Promise<void> {
