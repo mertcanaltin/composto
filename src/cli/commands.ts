@@ -10,7 +10,10 @@ import { detectDecay } from "../trends/decay.js";
 import { detectInconsistencies } from "../trends/inconsistency.js";
 import { route, DEFAULT_ROUTES } from "../router/router.js";
 import { CLIAdapter } from "./adapter.js";
-import { benchmarkFile, summarize } from "../benchmark/runner.js";
+import { benchmarkFile, summarize, type FileResult } from "../benchmark/runner.js";
+import { runQualityBenchmark } from "../benchmark/quality.js";
+import { packContext, type FileInput } from "../context/packer.js";
+import { estimateTokens } from "../benchmark/tokenizer.js";
 import type { TrendAnalysis, Finding } from "../types.js";
 
 function collectFiles(dir: string, extensions: string[]): string[] {
@@ -85,7 +88,7 @@ export function runTrends(projectPath: string): void {
   adapter.notify({ type: "trend-report", data: trends });
 }
 
-export function runIR(projectPath: string, filePath: string, layer: string): void {
+export async function runIR(projectPath: string, filePath: string, layer: string): Promise<void> {
   const config = loadConfig(projectPath);
   const code = readFileSync(filePath, "utf-8");
   const relPath = relative(projectPath, filePath);
@@ -102,7 +105,7 @@ export function runIR(projectPath: string, filePath: string, layer: string): voi
   const health = computeHealthFromTrends(relPath, trends);
 
   const irLayer = (layer || "L1") as "L0" | "L1" | "L2" | "L3";
-  const result = generateLayer(irLayer, {
+  const result = await generateLayer(irLayer, {
     code,
     filePath: relPath,
     health: health.churn > 0 ? health : null,
@@ -111,17 +114,20 @@ export function runIR(projectPath: string, filePath: string, layer: string): voi
   console.log(result);
 }
 
-export function runBenchmark(projectPath: string): void {
+const ALL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs"];
+
+export async function runBenchmark(projectPath: string): Promise<void> {
   console.log("composto v0.1.0 — benchmark\n");
 
-  const files = collectFiles(projectPath, [".ts", ".tsx", ".js", ".jsx"]);
+  const files = collectFiles(projectPath, ALL_EXTENSIONS);
   console.log(`  ${files.length} files\n`);
 
-  const results = files.map((file) => {
+  const results: FileResult[] = [];
+  for (const file of files) {
     const code = readFileSync(file, "utf-8");
     const relPath = relative(projectPath, file);
-    return benchmarkFile(code, relPath);
-  });
+    results.push(await benchmarkFile(code, relPath));
+  }
 
   results.sort((a, b) => b.savedPercent - a.savedPercent);
 
@@ -157,4 +163,93 @@ export function runBenchmark(projectPath: string): void {
   console.log(`  L1 (full IR):        ${summary.totalRaw} → ${summary.totalIRL1} tokens (${summary.totalSavedPercent.toFixed(1)}% reduction)`);
   console.log(`  Files analyzed: ${summary.fileCount}`);
   console.log(`  Avg confidence: ${summary.avgConfidence.toFixed(2)}`);
+}
+
+export async function runBenchmarkQuality(projectPath: string, filePath: string): Promise<void> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error("  Error: ANTHROPIC_API_KEY environment variable is required.");
+    process.exit(1);
+  }
+
+  const code = readFileSync(filePath, "utf-8");
+  const relPath = relative(projectPath, filePath);
+
+  console.log("composto v0.1.0 — quality benchmark\n");
+  console.log(`  File: ${relPath}\n`);
+  console.log("  Sending to Claude Haiku...\n");
+
+  const result = await runQualityBenchmark(code, relPath, apiKey);
+
+  const col1 = 20;
+  const col2 = 12;
+  const col3 = 12;
+  const line = "  " + "─".repeat(col1 + col2 + col3 + 4);
+
+  console.log(line);
+  console.log(`  ${"".padEnd(col1)} ${"Raw Code".padStart(col2)} ${"IR (L1)".padStart(col3)}`);
+  console.log(line);
+  console.log(`  ${"Input tokens".padEnd(col1)} ${String(result.raw.inputTokens).padStart(col2)} ${String(result.ir.inputTokens).padStart(col3)}`);
+  console.log(`  ${"Output tokens".padEnd(col1)} ${String(result.raw.outputTokens).padStart(col2)} ${String(result.ir.outputTokens).padStart(col3)}`);
+  console.log(`  ${"Total tokens".padEnd(col1)} ${String(result.raw.totalTokens).padStart(col2)} ${String(result.ir.totalTokens).padStart(col3)}`);
+  console.log(`  ${"Response time".padEnd(col1)} ${(result.raw.responseTimeMs / 1000).toFixed(1).padStart(col2 - 1)}s ${(result.ir.responseTimeMs / 1000).toFixed(1).padStart(col3 - 1)}s`);
+  console.log(`  ${"Saved".padEnd(col1)} ${"—".padStart(col2)} ${(result.savedPercent.toFixed(1) + "%").padStart(col3)}`);
+  console.log(line);
+
+  console.log(`\n  --- Raw Code Response ---\n${result.raw.response}\n`);
+  console.log(`  --- IR Response ---\n${result.ir.response}\n`);
+
+  if (result.savedPercent > 0) {
+    console.log(`  Verdict: ${result.savedPercent.toFixed(1)}% fewer tokens with IR.`);
+  }
+}
+
+export async function runContext(projectPath: string, budget: number): Promise<void> {
+  console.log(`composto v0.1.0 — context (budget: ${budget} tokens)\n`);
+
+  const files = collectFiles(projectPath, ALL_EXTENSIONS);
+  console.log(`  ${files.length} files\n`);
+
+  const config = loadConfig(projectPath);
+  const entries = getGitLog(projectPath, 100);
+  const hotspots = detectHotspots(entries, {
+    threshold: config.trends.hotspotThreshold,
+    fixRatioThreshold: config.trends.bugFixRatioThreshold,
+  });
+
+  const fileInputs: FileInput[] = files.map(file => {
+    const code = readFileSync(file, "utf-8");
+    const relPath = relative(projectPath, file);
+    return { path: relPath, code, rawTokens: estimateTokens(code) };
+  });
+
+  const result = await packContext(fileInputs, { budget, hotspots });
+
+  const l1Entries = result.entries.filter(e => e.layer === "L1");
+  const l0Entries = result.entries.filter(e => e.layer === "L0");
+
+  if (l1Entries.length > 0) {
+    console.log("  == L1 (detailed) ==\n");
+    for (const entry of l1Entries) {
+      const label = hotspots.some(h => h.file === entry.path) ? "hotspot" : "detail";
+      console.log(`  [${label}] ${entry.path}`);
+      for (const line of entry.ir.split("\n")) {
+        console.log(`    ${line}`);
+      }
+      console.log();
+    }
+  }
+
+  if (l0Entries.length > 0) {
+    console.log("  == L0 (structure) ==\n");
+    for (const entry of l0Entries) {
+      for (const line of entry.ir.split("\n")) {
+        console.log(`    ${line}`);
+      }
+    }
+    console.log();
+  }
+
+  console.log(`  Budget: ${result.totalTokens}/${result.budget} tokens`);
+  console.log(`  Files: ${result.filesAtL1} at L1, ${result.filesAtL0} at L0`);
 }
