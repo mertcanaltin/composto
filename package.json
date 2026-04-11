@@ -4,7 +4,8 @@
   "description": "Proactive AI team companion — less tokens, more insight",
   "type": "module",
   "bin": {
-    "composto": "dist/index.js"
+    "composto": "dist/index.js",
+    "composto-mcp": "dist/mcp/server.js"
   },
   "files": [
     "dist",
@@ -40,8 +41,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.87.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "picomatch": "^4.0.4",
     "web-tree-sitter": "^0.26.8",
-    "yaml": "^2.8.3"
+    "yaml": "^2.8.3",
+    "zod": "^4.3.6"
   }
 }

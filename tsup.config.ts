@@ -2,7 +2,7 @@ import { defineConfig } from "tsup";
 import { cpSync, mkdirSync, readdirSync } from "node:fs";
 
 export default defineConfig({
-  entry: ["src/index.ts"],
+  entry: ["src/index.ts", "src/mcp/server.ts"],
   format: ["esm"],
   dts: false,
   clean: true,
