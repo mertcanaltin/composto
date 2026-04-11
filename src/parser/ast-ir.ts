@@ -45,7 +45,7 @@ function summarizeFnBody(fnNode: SyntaxNode): string[] {
       case "return_statement":
       case "return_expression": {
         const retVal = node.childCount > 1 ? node.child(1)?.text ?? "" : "";
-        const short = retVal.length > 50 ? retVal.slice(0, 47) + "..." : retVal;
+        const short = retVal.length > 100 ? retVal.slice(0, 97) + "..." : retVal;
         lines.push(`${indent}RET ${short}`.trimEnd());
         break;
       }
@@ -55,6 +55,14 @@ function summarizeFnBody(fnNode: SyntaxNode): string[] {
       case "match_expression":
         lines.push(`${indent}MATCH`);
         break;
+      case "call_expression": {
+        const callee = node.child(0)?.text ?? "";
+        if (callee && !callee.startsWith("console.") && !callee.startsWith("Math.")) {
+          const shortCallee = callee.length > 40 ? callee.slice(0, 37) + "..." : callee;
+          lines.push(`${indent}CALL:${shortCallee}`);
+        }
+        return;
+      }
     }
 
     for (let i = 0; i < node.childCount; i++) {
@@ -133,7 +141,9 @@ export async function generateAstIR(code: string, filePath: string): Promise<str
       const prefix = isExported ? "OUT " : "";
       const params = fnCapture.node.childForFieldName("parameters")?.text ?? "()";
       const bodyLines = summarizeFnBody(fnCapture.node);
-      const fnLine = `${prefix}FN:${nameCapture.node.text}${params}`;
+      const fnText = fnCapture.node.text;
+      const asyncPrefix = fnText.trimStart().startsWith("async") ? "ASYNC " : "";
+      const fnLine = `${prefix}${asyncPrefix}FN:${nameCapture.node.text}${params}`;
       if (bodyLines.length > 0) {
         irParts.push(`${fnLine}\n${bodyLines.join("\n")}`);
       } else {

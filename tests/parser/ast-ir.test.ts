@@ -31,7 +31,7 @@ function validate(config: Config): boolean {
     expect(ir).toContain("FN:validate");
     expect(ir).toContain("IF:");
     expect(ir).toContain("RET");
-    expect(ir!.length).toBeLessThan(code.length * 0.8);
+    expect(ir!.length).toBeLessThan(code.length * 0.9);
   });
 
   it("generates IR for Python code", async () => {
@@ -140,5 +140,25 @@ impl Config {
   it("returns null for unsupported languages", async () => {
     const ir = await generateAstIR("body { color: red; }", "style.css");
     expect(ir).toBeNull();
+  });
+
+  it("marks async functions", async () => {
+    const code = "export async function fetchUsers(query: string) {\n  const data = await db.find(query);\n  return data;\n}";
+    const ir = await generateAstIR(code, "api.ts");
+    expect(ir).toContain("ASYNC");
+    expect(ir).toContain("FN:fetchUsers");
+  });
+
+  it("extends return value truncation to 100 chars", async () => {
+    const code = "export function build() {\n  return { id: generateId(), name: userName, email: userEmail, role: userRole, createdAt: new Date() };\n}";
+    const ir = await generateAstIR(code, "builder.ts");
+    const retLine = ir!.split("\n").find(l => l.includes("RET"));
+    expect(retLine!.length).toBeGreaterThan(55);
+  });
+
+  it("captures calls to imported functions in body", async () => {
+    const code = 'import { validate } from "./validator";\nexport function process(input: string) {\n  validate(input);\n  return input.trim();\n}';
+    const ir = await generateAstIR(code, "proc.ts");
+    expect(ir).toContain("CALL:validate");
   });
 });
