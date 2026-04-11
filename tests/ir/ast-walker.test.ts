@@ -68,11 +68,13 @@ describe("astWalkIR", () => {
       expect(ir).toContain("RET false");
     });
 
-    it("captures if-else chains", async () => {
+    it("captures if-else chains (else is walk-only, not emitted)", async () => {
       const code = "function route(x: string) {\n  if (x === 'a') {\n    return 1;\n  } else {\n    return 2;\n  }\n}";
       const ir = await astWalkIR(code, "route.ts");
       expect(ir).toContain("IF:");
-      expect(ir).toContain("ELSE:");
+      // else_clause is WALK_ONLY — not emitted, but children (RET) still appear
+      expect(ir).not.toContain("ELSE:");
+      expect(ir).toContain("RET 2");
     });
 
     it("captures for-of loops", async () => {
@@ -127,10 +129,12 @@ describe("astWalkIR", () => {
       expect(ir).toContain("VAR:API_URL");
     });
 
-    it("captures top-level call expressions (non-collection methods)", async () => {
+    it("drops call expression statements (noise)", async () => {
       const code = 'import { validate } from "./validator.js";\nfunction process(input: string) {\n  validate(input);\n  return input;\n}';
       const ir = await astWalkIR(code, "proc.ts");
-      expect(ir).toContain("CALL:validate");
+      // Call expressions are dropped as noise — only structural declarations matter
+      expect(ir).not.toContain("CALL:");
+      expect(ir).toContain("FN:process");
     });
 
     it("skips collection method calls", async () => {

@@ -15,7 +15,7 @@ const TIER_MAP: Record<string, Tier> = {
 
   // Tier 2 — control flow
   if_statement: "T2_CONTROL",
-  else_clause: "T2_CONTROL",
+  else_clause: "WALK_ONLY",
   for_statement: "T2_CONTROL",
   for_in_statement: "T2_CONTROL",
   while_statement: "T2_CONTROL",
@@ -143,9 +143,9 @@ function emitTier2(node: SyntaxNode): string | null {
           retText += (retText ? " " : "") + c.text;
         }
       }
-      retText = retText.trim();
+      retText = retText.replace(/\s*\n\s*/g, " ").replace(/\s{2,}/g, " ").trim();
       if (!retText) return "RET";
-      return `RET ${retText.length > 100 ? retText.slice(0, 97) + "..." : retText}`;
+      return `RET ${retText.length > 60 ? retText.slice(0, 57) + "..." : retText}`;
     }
     case "throw_statement": {
       let throwText = "";
@@ -257,11 +257,17 @@ function emitTier3(node: SyntaxNode): string | null {
         // Await expressions are important — they show async dependencies
         if (value.type === "await_expression") {
           const callee = value.childCount > 1 ? value.child(1)!.text : "...";
-          return `AWAIT:VAR:${name} = ${collapseText(callee, 50)}`;
+          return `AWAIT:${name}=${collapseText(callee, 40)}`;
         }
         // Regular variables inside function bodies are noise — drop them
         // Only keep top-level (module scope) variable declarations
         if (node.parent?.type === "statement_block") return null;
+        // Drop module-level constants with simple literal values (numbers, booleans, objects, arrays, new expressions, function calls)
+        // These are configuration/setup noise — only string/template constants carry semantic value
+        const vt = value.type;
+        if (vt === "number" || vt === "true" || vt === "false") return null;
+        if (vt === "object" || vt === "array") return null;
+        if (vt === "new_expression" || vt === "call_expression") return null;
         const valText = value.text.replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''").replace(/`[^`]*`/g, "``");
         return `VAR:${name} = ${collapseText(valText, 50)}`;
       }
@@ -273,21 +279,13 @@ function emitTier3(node: SyntaxNode): string | null {
       if (!expr) return null;
 
       if (expr.type === "await_expression") {
-        const callee = expr.childCount > 1 ? expr.child(1)!.text : "...";
-        return `AWAIT:${collapseText(callee, 50)}`;
+        // Standalone await without variable binding — drop (noise)
+        return null;
       }
 
       if (expr.type === "call_expression") {
-        const callee = getCalleeText(expr);
-        // Check skip prefixes
-        for (const prefix of SKIP_CALL_PREFIXES) {
-          if (callee.startsWith(prefix)) return null;
-        }
-        // Check skip suffixes
-        for (const suffix of SKIP_CALL_SUFFIXES) {
-          if (callee.endsWith(suffix)) return null;
-        }
-        return `CALL:${collapseText(callee, 50)}`;
+        // Drop all call expression statements — they add noise without structural value
+        return null;
       }
 
       // Assignment expressions and other expression statements are noise — drop them
@@ -321,9 +319,46 @@ function walkNode(node: SyntaxNode, depth: number, lines: string[]): void {
     }
 
     case "T2_CONTROL": {
-      // Limit depth — beyond 4, only keep returns, case labels, and throw
-      const keepDeep = ["return_statement", "switch_case", "switch_default", "throw_statement"];
-      if (depth > 4 && !keepDeep.includes(node.type)) break;
+      // Limit depth — beyond 4, only keep returns, throw, and switch cases
+      if (depth > 4 && node.type !== "return_statement" && node.type !== "throw_statement"
+        && node.type !== "switch_case" && node.type !== "switch_default") break;
+
+      // Guard clause compression: if (cond) { return x; } → single GUARD line
+      if (node.type === "if_statement") {
+        // Check no else branch
+        let hasElse = false;
+        for (let i = 0; i < node.childCount; i++) {
+          if (node.child(i)!.type === "else_clause") { hasElse = true; break; }
+        }
+        if (!hasElse) {
+          // Find the body: either consequence field or first statement_block child
+          const body = node.childForFieldName("consequence")
+            ?? (() => { for (let i = 0; i < node.childCount; i++) { const c = node.child(i)!; if (c.type === "statement_block") return c; } return null; })();
+          if (body) {
+            let singleStmt: SyntaxNode | null = null;
+            if (body.type === "statement_block") {
+              const stmts: SyntaxNode[] = [];
+              for (let i = 0; i < body.childCount; i++) {
+                const c = body.child(i)!;
+                if (c.type !== "{" && c.type !== "}") stmts.push(c);
+              }
+              if (stmts.length === 1) singleStmt = stmts[0];
+            } else if (body.type === "return_statement" || body.type === "throw_statement") {
+              singleStmt = body;
+            }
+            if (singleStmt && (singleStmt.type === "return_statement" || singleStmt.type === "throw_statement")) {
+              const cond = extractCondition(node);
+              const retLine = emitTier2(singleStmt);
+              if (retLine) {
+                const indent = "  ".repeat(depth);
+                lines.push(`${indent}IF:${cond} → ${retLine}`);
+                break;
+              }
+            }
+          }
+        }
+      }
+
       const line = emitTier2(node);
       const indent = "  ".repeat(depth);
       if (line) lines.push(indent + line);
@@ -334,6 +369,8 @@ function walkNode(node: SyntaxNode, depth: number, lines: string[]): void {
     }
 
     case "T3_COMPRESS": {
+      // At deep nesting, expression details are noise — skip
+      if (depth > 4) break;
       const line = emitTier3(node);
       const indent = "  ".repeat(depth);
       if (line) lines.push(indent + line);
@@ -376,5 +413,36 @@ export async function astWalkIR(code: string, filePath: string): Promise<string 
   walkNode(root, 0, lines);
 
   if (lines.length === 0) return null;
-  return lines.join("\n");
+
+  // Post-process: merge consecutive USE lines into compact groups
+  const merged: string[] = [];
+  let useBlock: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("USE:")) {
+      // Extract just the module path from the import
+      const m = line.match(/from\s+["']([^"']+)["']/);
+      useBlock.push(m ? m[1] : line.slice(4));
+    } else {
+      if (useBlock.length > 0) {
+        if (useBlock.length <= 3) {
+          // Few imports — keep as-is for clarity
+          for (const mod of useBlock) merged.push(`USE:${mod}`);
+        } else {
+          // Many imports — group by prefix
+          merged.push(`USE:[${useBlock.join(", ")}]`);
+        }
+        useBlock = [];
+      }
+      merged.push(line);
+    }
+  }
+  if (useBlock.length > 0) {
+    if (useBlock.length <= 3) {
+      for (const mod of useBlock) merged.push(`USE:${mod}`);
+    } else {
+      merged.push(`USE:[${useBlock.join(", ")}]`);
+    }
+  }
+
+  return merged.join("\n");
 }
