@@ -46,7 +46,18 @@ describe("fingerprintLine", () => {
   it("returns raw for unrecognized lines", () => {
     const result = fingerprintLine("  someComplexExpression.chain().map(x => x.y)");
     expect(result.type).toBe("raw");
-    expect(result.confidence).toBeLessThan(0.6);
+    expect(result.confidence).toBeLessThanOrEqual(0.1);
+  });
+
+  it("returns very low confidence for unrecognized lines", () => {
+    const result = fingerprintLine("  obj.method().chain().filter(Boolean)");
+    expect(result.type).toBe("raw");
+    expect(result.confidence).toBe(0.1);
+  });
+
+  it("gives high confidence to destructuring assignments", () => {
+    const result = fingerprintLine("const { name, age } = user;");
+    expect(result.confidence).toBeGreaterThanOrEqual(0.85);
   });
 
   it("fingerprints destructuring assignments", () => {

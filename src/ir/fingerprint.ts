@@ -142,11 +142,17 @@ const PATTERNS: Pattern[] = [
     },
     confidence: 0.9,
   },
+  // const { a, b } = expr (object destructuring — before regular assignment)
+  {
+    match: /^(?:const|let|var)\s+\{([^}]+)\}\s*=\s*(.+);?\s*$/,
+    transform: (m) => `VAR:{${m[1].replace(/\s/g, "")}} = ${m[2].replace(/;$/, "").trim()}`,
+    confidence: 0.9,
+  },
   // const [a, b] = expr (destructuring — before regular assignment)
   {
     match: /^(?:const|let|var)\s+\[([^\]]+)\]\s*=\s*(.+);?\s*$/,
     transform: (m) => `VAR:[${m[1].replace(/\s/g, "")}] = ${m[2].replace(/;$/, "").trim()}`,
-    confidence: 0.65,
+    confidence: 0.9,
   },
   // const name = value;
   {
@@ -186,7 +192,7 @@ export function fingerprintLine(line: string): FingerprintResult {
     }
   }
 
-  return { type: "raw", ir: trimmed, confidence: 0.3 };
+  return { type: "raw", ir: trimmed, confidence: 0.1 };
 }
 
 export function fingerprintFile(code: string, confidenceThreshold: number = 0.6): string {

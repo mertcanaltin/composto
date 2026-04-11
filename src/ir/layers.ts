@@ -2,6 +2,7 @@ import type { HealthAnnotation, DeltaContext } from "../types.js";
 import { extractStructure } from "./structure.js";
 import { fingerprintFile } from "./fingerprint.js";
 import { annotateIR } from "./health.js";
+import { generateAstIR } from "../parser/ast-ir.js";
 
 export function generateL0(code: string, filePath: string): string {
   const structure = extractStructure(code);
@@ -19,8 +20,10 @@ export function generateL0(code: string, filePath: string): string {
   return `${filePath}\n${declarations.join("\n")}`;
 }
 
-export function generateL1(code: string, health: HealthAnnotation | null): string {
-  const ir = fingerprintFile(code, 0.6);
+export async function generateL1(code: string, filePath: string, health: HealthAnnotation | null): Promise<string> {
+  // Try AST-based IR first, fall back to regex fingerprint
+  const astIR = await generateAstIR(code, filePath);
+  const ir = astIR ?? fingerprintFile(code, 0.75);
   if (health) {
     return annotateIR(ir, health);
   }
@@ -51,7 +54,7 @@ export function generateL3(code: string, startLine: number, endLine: number): st
 
 export type IRLayer = "L0" | "L1" | "L2" | "L3";
 
-export function generateLayer(
+export async function generateLayer(
   layer: IRLayer,
   options: {
     code: string;
@@ -60,14 +63,14 @@ export function generateLayer(
     delta?: DeltaContext;
     lineRange?: { start: number; end: number };
   }
-): string {
+): Promise<string> {
   switch (layer) {
     case "L0":
       return generateL0(options.code, options.filePath);
     case "L1":
-      return generateL1(options.code, options.health);
+      return generateL1(options.code, options.filePath, options.health);
     case "L2":
-      if (!options.delta) return generateL1(options.code, options.health);
+      if (!options.delta) return generateL1(options.code, options.filePath, options.health);
       return generateL2(options.delta, options.health);
     case "L3":
       if (options.lineRange) {
