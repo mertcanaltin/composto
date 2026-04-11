@@ -58,4 +58,56 @@ describe("astWalkIR", () => {
       expect(ir).toBeNull();
     });
   });
+
+  describe("Tier 2 — control flow", () => {
+    it("captures if statements with condition", async () => {
+      const code = "export function check(x: number) {\n  if (x > 10) {\n    return true;\n  }\n  return false;\n}";
+      const ir = await astWalkIR(code, "check.ts");
+      expect(ir).toContain("IF:");
+      expect(ir).toContain("RET true");
+      expect(ir).toContain("RET false");
+    });
+
+    it("captures if-else chains", async () => {
+      const code = "function route(x: string) {\n  if (x === 'a') {\n    return 1;\n  } else {\n    return 2;\n  }\n}";
+      const ir = await astWalkIR(code, "route.ts");
+      expect(ir).toContain("IF:");
+      expect(ir).toContain("ELSE:");
+    });
+
+    it("captures for-of loops", async () => {
+      const code = "function sum(items: number[]) {\n  for (const item of items) {\n    total += item;\n  }\n}";
+      const ir = await astWalkIR(code, "sum.ts");
+      expect(ir).toContain("LOOP");
+    });
+
+    it("captures switch statements", async () => {
+      const code = 'function handle(cmd: string) {\n  switch (cmd) {\n    case "run":\n      return exec();\n    default:\n      return help();\n  }\n}';
+      const ir = await astWalkIR(code, "handler.ts");
+      expect(ir).toContain("SWITCH:cmd");
+      expect(ir).toContain("CASE:");
+      expect(ir).toContain("DEFAULT:");
+    });
+
+    it("captures try-catch", async () => {
+      const code = "function safe() {\n  try {\n    riskyCall();\n  } catch (err) {\n    log(err);\n  }\n}";
+      const ir = await astWalkIR(code, "safe.ts");
+      expect(ir).toContain("TRY");
+      expect(ir).toContain("CATCH:");
+    });
+
+    it("captures return with value truncation at 100 chars", async () => {
+      const longReturn = "{ id: generateId(), name: userName, email: userEmail, role: userRole, status: active, createdAt: new Date(), updatedAt: new Date() }";
+      const code = "function build() {\n  return " + longReturn + ";\n}";
+      const ir = await astWalkIR(code, "build.ts");
+      const retLine = ir!.split("\\n").find(l => l.includes("RET"));
+      expect(retLine).toBeTruthy();
+    });
+
+    it("captures throw statements", async () => {
+      const code = 'function validate(x: number) {\n  if (x < 0) {\n    throw new Error("negative");\n  }\n}';
+      const ir = await astWalkIR(code, "validate.ts");
+      expect(ir).toContain("THROW:");
+    });
+  });
 });
