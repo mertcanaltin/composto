@@ -101,6 +101,42 @@ describe("fingerprintLine", () => {
     expect(result.ir).toBe("SET:fullName(value)");
     expect(result.confidence).toBeGreaterThanOrEqual(0.9);
   });
+
+  it("fingerprints await expressions", () => {
+    const result = fingerprintLine("const data = await fetchData(userId);");
+    expect(result.ir).toBe("AWAIT:VAR:data = fetchData(userId)");
+    expect(result.confidence).toBeGreaterThanOrEqual(0.85);
+  });
+
+  it("fingerprints ternary expressions in assignments", () => {
+    const result = fingerprintLine("const label = isAdmin ? 'Admin' : 'User';");
+    expect(result.ir).toContain("VAR:label = isAdmin ? 'Admin' : 'User'");
+    expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+  });
+
+  it("fingerprints object spread", () => {
+    const result = fingerprintLine("const merged = { ...defaults, ...overrides };");
+    expect(result.ir).toContain("VAR:merged = { ...defaults, ...overrides }");
+    expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+  });
+
+  it("fingerprints optional chaining in assignments", () => {
+    const result = fingerprintLine("const name = user?.profile?.name;");
+    expect(result.ir).toContain("VAR:name = user?.profile?.name");
+    expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+  });
+
+  it("fingerprints nullish coalescing", () => {
+    const result = fingerprintLine("const port = config.port ?? 3000;");
+    expect(result.ir).toContain("VAR:port = config.port ?? 3000");
+    expect(result.confidence).toBeGreaterThanOrEqual(0.75);
+  });
+
+  it("fingerprints template literals in assignments", () => {
+    const result = fingerprintLine("const msg = `Hello ${name}, welcome!`;");
+    expect(result.ir).toContain("VAR:msg = `Hello ${name}, welcome!`");
+    expect(result.confidence).toBeGreaterThanOrEqual(0.70);
+  });
 });
 
 describe("fingerprintFile", () => {

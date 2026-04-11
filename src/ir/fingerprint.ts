@@ -91,6 +91,15 @@ const PATTERNS: Pattern[] = [
     transform: (m) => `CATCH:${m[1]}`,
     confidence: 0.9,
   },
+  // const x = await expr;
+  {
+    match: /^(?:export\s+)?(?:const|let|var)\s+(\w+)(?:\s*:\s*[^=]+)?\s*=\s*await\s+(.+);?\s*$/,
+    transform: (m) => {
+      const prefix = m[0].startsWith("export") ? "OUT " : "";
+      return `${prefix}AWAIT:VAR:${m[1]} = ${m[2].replace(/;$/, "").trim()}`;
+    },
+    confidence: 0.85,
+  },
   // export const name = async (params) => {  OR  export const name = (params) => expr;
   {
     match: /^export\s+(?:const|let|var)\s+(\w+)\s*=\s*(async\s+)?\(([^)]*)\)\s*=>\s*(.*)$/,
@@ -146,7 +155,7 @@ const PATTERNS: Pattern[] = [
       const prefix = m[0].startsWith("export") ? "OUT " : "";
       return `${prefix}VAR:${m[1]} = ${m[2].replace(/;$/, "").trim()}`;
     },
-    confidence: 0.7,
+    confidence: 0.85,
   },
 ];
 
