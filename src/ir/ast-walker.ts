@@ -414,33 +414,60 @@ export async function astWalkIR(code: string, filePath: string): Promise<string 
 
   if (lines.length === 0) return null;
 
-  // Post-process: merge consecutive USE lines into compact groups
-  const merged: string[] = [];
+  // Post-process pass 1: merge consecutive USE lines
+  const pass1: string[] = [];
   let useBlock: string[] = [];
   for (const line of lines) {
     if (line.startsWith("USE:")) {
-      // Extract just the module path from the import
       const m = line.match(/from\s+["']([^"']+)["']/);
       useBlock.push(m ? m[1] : line.slice(4));
     } else {
       if (useBlock.length > 0) {
         if (useBlock.length <= 3) {
-          // Few imports — keep as-is for clarity
-          for (const mod of useBlock) merged.push(`USE:${mod}`);
+          for (const mod of useBlock) pass1.push(`USE:${mod}`);
         } else {
-          // Many imports — group by prefix
-          merged.push(`USE:[${useBlock.join(", ")}]`);
+          pass1.push(`USE:[${useBlock.join(", ")}]`);
         }
         useBlock = [];
       }
-      merged.push(line);
+      pass1.push(line);
     }
   }
   if (useBlock.length > 0) {
     if (useBlock.length <= 3) {
-      for (const mod of useBlock) merged.push(`USE:${mod}`);
+      for (const mod of useBlock) pass1.push(`USE:${mod}`);
     } else {
-      merged.push(`USE:[${useBlock.join(", ")}]`);
+      pass1.push(`USE:[${useBlock.join(", ")}]`);
+    }
+  }
+
+  // Post-process pass 2: merge 3+ consecutive guard clauses
+  // Only merge when there are 3 or more — keeps small if/ret pairs readable
+  const merged: string[] = [];
+  let guardBlock: string[] = [];
+
+  for (const line of pass1) {
+    const guardMatch = line.match(/^(\s*)IF:(.+?) \u2192 RET/);
+    if (guardMatch) {
+      guardBlock.push(guardMatch[2].trim());
+      continue;
+    }
+    if (guardBlock.length > 0) {
+      if (guardBlock.length < 3) {
+        // Keep as individual lines
+        for (const g of guardBlock) merged.push(`  IF:${g} \u2192 RET`);
+      } else {
+        merged.push(`  GUARD:[${guardBlock.join(", ")}]`);
+      }
+      guardBlock = [];
+    }
+    merged.push(line);
+  }
+  if (guardBlock.length > 0) {
+    if (guardBlock.length < 3) {
+      for (const g of guardBlock) merged.push(`  IF:${g} \u2192 RET`);
+    } else {
+      merged.push(`  GUARD:[${guardBlock.join(", ")}]`);
     }
   }
 
