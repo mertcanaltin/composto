@@ -2,7 +2,7 @@ import type { HealthAnnotation, DeltaContext } from "../types.js";
 import { extractStructure } from "./structure.js";
 import { fingerprintFile } from "./fingerprint.js";
 import { annotateIR } from "./health.js";
-import { generateAstIR } from "../parser/ast-ir.js";
+import { astWalkIR } from "./ast-walker.js";
 
 export function generateL0(code: string, filePath: string): string {
   const structure = extractStructure(code);
@@ -22,8 +22,7 @@ export function generateL0(code: string, filePath: string): string {
 
 export async function generateL1(code: string, filePath: string, health: HealthAnnotation | null): Promise<string> {
   // Try AST-based IR first, fall back to regex fingerprint
-  const astIR = await generateAstIR(code, filePath);
-  const ir = astIR ?? fingerprintFile(code, 0.75);
+  const ir = await astWalkIR(code, filePath) ?? fingerprintFile(code, 0.75);
   if (health) {
     return annotateIR(ir, health);
   }

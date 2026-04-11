@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateL0, generateL1 } from "../../src/ir/layers.js";
+import { generateL0, generateL1, generateLayer } from "../../src/ir/layers.js";
 
 describe("generateL0 — Structure Map", () => {
   it("generates compact structure map", () => {
@@ -41,6 +41,15 @@ describe("generateL1 — Health-Aware Generic IR", () => {
     // AST-IR or regex fallback — both should produce meaningful output
     expect(result).toBeTruthy();
     expect(result.length).toBeGreaterThan(0);
+  });
+
+  it("uses AST walker for TypeScript files and produces compressed output", async () => {
+    const code = 'import { x } from "y";\nexport function hello(name: string) {\n  if (name) {\n    return "Hi " + name;\n  }\n  return "Hi";\n}';
+    const result = await generateLayer("L1", { code, filePath: "test.ts", health: null });
+    expect(result).toContain("USE:");
+    expect(result).toContain("FN:hello");
+    expect(result).toContain("IF:");
+    expect(result).toContain("RET");
   });
 
   it("includes health annotations when provided", async () => {
