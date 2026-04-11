@@ -110,4 +110,54 @@ describe("astWalkIR", () => {
       expect(ir).toContain("THROW:");
     });
   });
+
+  describe("Tier 3 — compressible expressions", () => {
+    it("captures variable declarations", async () => {
+      const code = "function init() {\n  const config = loadConfig();\n  const port = 3000;\n}";
+      const ir = await astWalkIR(code, "init.ts");
+      expect(ir).toContain("VAR:config");
+      expect(ir).toContain("VAR:port");
+    });
+
+    it("captures top-level call expressions (non-collection methods)", async () => {
+      const code = 'import { validate } from "./validator.js";\nfunction process(input: string) {\n  validate(input);\n  return input;\n}';
+      const ir = await astWalkIR(code, "proc.ts");
+      expect(ir).toContain("CALL:validate");
+    });
+
+    it("skips collection method calls", async () => {
+      const code = "function build() {\n  items.push(1);\n  items.sort();\n  items.map(x => x);\n  return items;\n}";
+      const ir = await astWalkIR(code, "build.ts");
+      expect(ir).not.toContain("CALL:items.push");
+      expect(ir).not.toContain("CALL:items.sort");
+      expect(ir).not.toContain("CALL:items.map");
+    });
+
+    it("skips console and Math calls", async () => {
+      const code = 'function debug() {\n  console.log("hi");\n  Math.max(1, 2);\n}';
+      const ir = await astWalkIR(code, "debug.ts");
+      expect(ir).not.toContain("CALL:console");
+      expect(ir).not.toContain("CALL:Math");
+    });
+
+    it("captures await expressions in variable declarations", async () => {
+      const code = "async function load() {\n  const data = await fetchData();\n  return data;\n}";
+      const ir = await astWalkIR(code, "load.ts");
+      expect(ir).toContain("AWAIT:");
+    });
+
+    it("captures arrow function variable declarations", async () => {
+      const code = "const handler = async (req: Request) => {\n  return respond(req);\n}";
+      const ir = await astWalkIR(code, "handler.ts");
+      expect(ir).toContain("FN:handler");
+    });
+
+    it("drops Tier 4 noise — string contents, operators, punctuation not in IR", async () => {
+      const code = 'function greet(name: string) {\n  const msg = "Hello " + name;\n  console.log(msg);\n  return msg;\n}';
+      const ir = await astWalkIR(code, "greet.ts");
+      expect(ir).not.toContain("Hello");
+      expect(ir).toContain("FN:greet");
+      expect(ir).toContain("RET msg");
+    });
+  });
 });

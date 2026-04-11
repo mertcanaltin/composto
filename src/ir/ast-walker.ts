@@ -28,6 +28,10 @@ const TIER_MAP: Record<string, Tier> = {
   try_statement: "T2_CONTROL",
   catch_clause: "T2_CONTROL",
 
+  // Tier 3 — compressible expressions
+  lexical_declaration: "T3_COMPRESS",
+  expression_statement: "T3_COMPRESS",
+
   // Walk-only — containers that need traversal but no emission
   program: "WALK_ONLY",
   statement_block: "WALK_ONLY",
@@ -211,6 +215,90 @@ function emitTier1(node: SyntaxNode): string | null {
   }
 }
 
+const SKIP_CALL_SUFFIXES = [".push", ".pop", ".shift", ".unshift", ".splice", ".sort", ".reverse",
+  ".set", ".get", ".delete", ".add", ".clear", ".has", ".forEach", ".map", ".filter", ".reduce",
+  ".find", ".some", ".every", ".join", ".split", ".trim", ".slice", ".includes", ".indexOf",
+  ".toString", ".valueOf"];
+
+const SKIP_CALL_PREFIXES = ["console.", "Math.", "Object.", "Array.", "JSON.", "String.", "Number.", "Promise."];
+
+function getCalleeText(node: SyntaxNode): string {
+  const fn = node.childForFieldName("function");
+  if (fn) return fn.text;
+  // fallback: first child
+  if (node.childCount > 0) return node.child(0)!.text;
+  return "";
+}
+
+function emitTier3(node: SyntaxNode): string | null {
+  switch (node.type) {
+    case "lexical_declaration": {
+      // Find variable_declarator child
+      let declarator: SyntaxNode | null = null;
+      for (let i = 0; i < node.childCount; i++) {
+        const c = node.child(i)!;
+        if (c.type === "variable_declarator") {
+          declarator = c;
+          break;
+        }
+      }
+      if (!declarator) return null;
+
+      const name = declarator.childForFieldName("name")?.text ?? "?";
+      const value = declarator.childForFieldName("value");
+
+      if (value) {
+        if (value.type === "arrow_function") {
+          const asyncPrefix = isAsync(value) ? "ASYNC " : "";
+          const params = value.childForFieldName("parameters")?.text ?? "()";
+          return `${asyncPrefix}FN:${name}${collapseText(params, 60)} => ...`;
+        }
+        if (value.type === "await_expression") {
+          const callee = value.childCount > 1 ? value.child(1)!.text : "...";
+          return `AWAIT:VAR:${name} = ${collapseText(callee, 50)}`;
+        }
+        // Strip string literal contents to avoid noise
+        const valText = value.text.replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''").replace(/`[^`]*`/g, "``");
+        return `VAR:${name} = ${collapseText(valText, 50)}`;
+      }
+      return `VAR:${name}`;
+    }
+
+    case "expression_statement": {
+      const expr = node.child(0);
+      if (!expr) return null;
+
+      if (expr.type === "await_expression") {
+        const callee = expr.childCount > 1 ? expr.child(1)!.text : "...";
+        return `AWAIT:${collapseText(callee, 50)}`;
+      }
+
+      if (expr.type === "call_expression") {
+        const callee = getCalleeText(expr);
+        // Check skip prefixes
+        for (const prefix of SKIP_CALL_PREFIXES) {
+          if (callee.startsWith(prefix)) return null;
+        }
+        // Check skip suffixes
+        for (const suffix of SKIP_CALL_SUFFIXES) {
+          if (callee.endsWith(suffix)) return null;
+        }
+        return `CALL:${collapseText(callee, 50)}`;
+      }
+
+      if (expr.type === "assignment_expression") {
+        const left = expr.childForFieldName("left")?.text ?? "?";
+        return `${left} = ...`;
+      }
+
+      return null;
+    }
+
+    default:
+      return null;
+  }
+}
+
 function walkNode(node: SyntaxNode, depth: number, lines: string[]): void {
   const tier = tierOf(node.type);
 
@@ -239,6 +327,14 @@ function walkNode(node: SyntaxNode, depth: number, lines: string[]): void {
       for (let i = 0; i < node.childCount; i++) {
         walkNode(node.child(i)!, depth + 1, lines);
       }
+      break;
+    }
+
+    case "T3_COMPRESS": {
+      const line = emitTier3(node);
+      const indent = "  ".repeat(depth);
+      if (line) lines.push(indent + line);
+      // Don't walk children — one-liner is enough
       break;
     }
 
