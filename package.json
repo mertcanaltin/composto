@@ -1,6 +1,6 @@
 {
   "name": "composto-ai",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Proactive AI team companion — less tokens, more insight",
   "type": "module",
   "bin": {
