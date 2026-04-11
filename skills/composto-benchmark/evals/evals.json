@@ -1,0 +1,59 @@
+{
+  "skill_name": "composto-benchmark",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "composto kullanınca ne kadar token tasarrufu sağlıyoruz? src/ir dizinini benchmark'la ve sonuçları göster",
+      "expected_output": "Token benchmark tablosu (raw vs L0 vs L1), toplam tasarruf yüzdesi, dosya bazlı karşılaştırma",
+      "assertions": [
+        {"id": "ran-benchmark-cmd", "text": "Ran 'npx composto benchmark' and included raw CLI output"},
+        {"id": "comparison-table", "text": "Shows formatted comparison table with Raw vs L0 vs L1 token counts"},
+        {"id": "savings-percent", "text": "Reports total savings percentage"},
+        {"id": "file-breakdown", "text": "Shows per-file breakdown with individual savings"},
+        {"id": "cost-estimation", "text": "Includes cost estimation for at least 2 models (Opus/Sonnet/Haiku)"},
+        {"id": "ir-sample", "text": "Shows at least 1 IR before/after example"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "I want to see if Composto IR actually produces good enough results compared to raw code. Run a full comparison on src/benchmark/runner.ts — tokens, quality, everything",
+      "expected_output": "Token savings, IR before/after with raw code shown, fidelity analysis of what IR preserves vs drops",
+      "assertions": [
+        {"id": "ran-token-benchmark", "text": "Ran token benchmark for runner.ts specifically"},
+        {"id": "raw-code-shown", "text": "Shows the actual raw code (or substantial portion) for comparison"},
+        {"id": "ir-output-shown", "text": "Shows L1 IR output for the same file"},
+        {"id": "fidelity-analysis", "text": "Analyzes what IR preserves (imports, signatures, control flow) and what it drops (interface members, internal vars, exact formulas)"},
+        {"id": "structured-table", "text": "Presents results in a structured comparison table"},
+        {"id": "verdict", "text": "Gives a clear verdict on whether IR quality is sufficient"}
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "projemde composto kullanmak mantıklı mı? benchmarkla bana kanıtla",
+      "expected_output": "Full benchmark: multi-directory scan, fidelity analysis, 2+ IR before/after examples, cost projection at 2 scales, clear verdict",
+      "assertions": [
+        {"id": "multi-dir-scan", "text": "Benchmarks both src/ AND tests/ (or multiple directories), not just one"},
+        {"id": "combined-total", "text": "Shows combined project-wide total token savings"},
+        {"id": "two-ir-examples", "text": "Shows at least 2 IR before/after examples (different files)"},
+        {"id": "fidelity-section", "text": "Includes IR fidelity analysis (what preserves vs drops)"},
+        {"id": "cost-two-scales", "text": "Cost projection at 2+ usage scales (e.g. 100 and 1000 calls/month)"},
+        {"id": "cost-multi-model", "text": "Cost estimation for at least 2 different models"},
+        {"id": "clear-verdict", "text": "Gives a clear yes/no verdict with supporting evidence"}
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Bu calculator.js dosyasını Composto ile ve Composto olmadan kıyasla, IR ne kadar iyi sıkıştırıyor?",
+      "expected_output": "calculator.js raw vs IR karşılaştırması, fonksiyon bazlı fidelity analizi, assert'lerin nasıl elendiği",
+      "files": ["skills/composto-benchmark/evals/fixtures/calculator.js"],
+      "assertions": [
+        {"id": "ran-benchmark-calculator", "text": "Ran benchmark on calculator.js specifically"},
+        {"id": "shows-raw-code", "text": "Shows the raw calculator.js code or key portions"},
+        {"id": "shows-ir-output", "text": "Shows L1 IR output for calculator.js"},
+        {"id": "savings-reported", "text": "Reports token savings percentage (~86-87%)"},
+        {"id": "function-fidelity", "text": "Analyzes that all 5 functions (add, subtract, multiply, divide, calculate) are preserved in IR"},
+        {"id": "assertion-elision", "text": "Notes that test assertions/boilerplate were stripped by IR, contributing to high savings"}
+      ]
+    }
+  ]
+}
