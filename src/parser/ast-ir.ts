@@ -57,11 +57,12 @@ function summarizeFnBody(fnNode: SyntaxNode): string[] {
         break;
       case "call_expression": {
         // Only capture top-level calls (direct children of expression_statement)
-        // Skip nested calls inside arguments, chains, etc.
         if (node.parent?.type !== "expression_statement") break;
         const callee = node.child(0)?.text ?? "";
-        const skip = ["console.", "Math.", "Object.", "Array.", "JSON.", "String.", "Number.", "Promise."];
-        if (callee && !skip.some(s => callee.startsWith(s))) {
+        // Skip utility calls and common collection methods — they're noise
+        const skipPrefix = ["console.", "Math.", "Object.", "Array.", "JSON.", "String.", "Number.", "Promise."];
+        const skipSuffix = [".push", ".pop", ".shift", ".unshift", ".splice", ".sort", ".reverse", ".set", ".get", ".delete", ".add", ".clear", ".has", ".forEach", ".map", ".filter", ".reduce", ".find", ".some", ".every", ".join", ".split", ".trim", ".slice", ".includes"];
+        if (callee && !skipPrefix.some(s => callee.startsWith(s)) && !skipSuffix.some(s => callee.endsWith(s))) {
           const shortCallee = callee.length > 40 ? callee.slice(0, 37) + "..." : callee;
           lines.push(`${indent}CALL:${shortCallee}`);
         }
@@ -143,7 +144,9 @@ export async function generateAstIR(code: string, filePath: string): Promise<str
       // Check if this function is inside an export_statement
       const isExported = fnCapture.node.parent?.type === "export_statement";
       const prefix = isExported ? "OUT " : "";
-      const params = fnCapture.node.childForFieldName("parameters")?.text ?? "()";
+      const rawParams = fnCapture.node.childForFieldName("parameters")?.text ?? "()";
+      // Collapse multiline params to single line
+      const params = rawParams.replace(/\s*\n\s*/g, " ").replace(/\s{2,}/g, " ");
       const bodyLines = summarizeFnBody(fnCapture.node);
       const fnText = fnCapture.node.text;
       const asyncPrefix = fnText.trimStart().startsWith("async") ? "ASYNC " : "";
