@@ -7,10 +7,22 @@ interface Pattern {
 }
 
 const PATTERNS: Pattern[] = [
+  // import type { x, y } from "module"
+  {
+    match: /^import\s+type\s+\{([^}]+)\}\s+from\s+["']([^"']+)["'];?\s*$/,
+    transform: (m) => `USE:${m[2]}{${m[1].replace(/\s/g, "")}}`,
+    confidence: 0.95,
+  },
   // import { x, y } from "module"
   {
     match: /^import\s+\{([^}]+)\}\s+from\s+["']([^"']+)["'];?\s*$/,
     transform: (m) => `USE:${m[2]}{${m[1].replace(/\s/g, "")}}`,
+    confidence: 0.95,
+  },
+  // import type x from "module"
+  {
+    match: /^import\s+type\s+(\w+)\s+from\s+["']([^"']+)["'];?\s*$/,
+    transform: (m) => `USE:${m[2]}{${m[1]}}`,
     confidence: 0.95,
   },
   // import x from "module"
@@ -90,6 +102,48 @@ const PATTERNS: Pattern[] = [
     match: /^(?:\}\s*)?catch\s*\((\w+)\)\s*\{?\s*$/,
     transform: (m) => `CATCH:${m[1]}`,
     confidence: 0.9,
+  },
+  // switch (expr) {
+  {
+    match: /^switch\s*\(([^)]+)\)\s*\{?\s*$/,
+    transform: (m) => `SWITCH:${m[1].trim()}`,
+    confidence: 0.9,
+  },
+  // case "value":  /  case value:
+  {
+    match: /^case\s+(.+)\s*:\s*$/,
+    transform: (m) => `CASE:${m[1].trim()}`,
+    confidence: 0.9,
+  },
+  // default:
+  {
+    match: /^default\s*:\s*$/,
+    transform: () => "DEFAULT:",
+    confidence: 0.9,
+  },
+  // export type Name = ...
+  {
+    match: /^export\s+type\s+(\w+)(?:<[^>]+>)?\s*=\s*(.+);?\s*$/,
+    transform: (m) => `OUT TYPE:${m[1]}`,
+    confidence: 0.9,
+  },
+  // if (cond) expr;  (inline if with method call)
+  {
+    match: /^if\s*\(([^)]+)\)\s+(\w+.+);?\s*$/,
+    transform: (m) => `IF:${m[1].trim()} -> ${m[2].replace(/;$/, "").trim().slice(0, 50)}`,
+    confidence: 0.9,
+  },
+  // export async function name(  (multiline signature)
+  {
+    match: /^export\s+(?:default\s+)?(?:async\s+)?function\s+(\w+)\s*\(\s*$/,
+    transform: (m) => `OUT FN:${m[1]}(`,
+    confidence: 0.95,
+  },
+  // interface/type property — name: type;
+  {
+    match: /^\s*(\w+)\??\s*:\s*(.+);?\s*$/,
+    transform: (m) => `PROP:${m[1]}: ${m[2].replace(/;$/, "").trim()}`,
+    confidence: 0.75,
   },
   // const x = await expr;
   {
@@ -208,9 +262,8 @@ export function fingerprintFile(code: string, confidenceThreshold: number = 0.6)
 
     if (result.confidence >= confidenceThreshold) {
       irLines.push(`${indentStr}${result.ir}`);
-    } else {
-      irLines.push(`${indentStr}${result.ir}`);
     }
+    // Lines below threshold are dropped — they add noise without signal
   }
 
   return irLines.join("\n");

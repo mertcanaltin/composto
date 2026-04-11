@@ -56,12 +56,16 @@ function summarizeFnBody(fnNode: SyntaxNode): string[] {
         lines.push(`${indent}MATCH`);
         break;
       case "call_expression": {
+        // Only capture top-level calls (direct children of expression_statement)
+        // Skip nested calls inside arguments, chains, etc.
+        if (node.parent?.type !== "expression_statement") break;
         const callee = node.child(0)?.text ?? "";
-        if (callee && !callee.startsWith("console.") && !callee.startsWith("Math.")) {
+        const skip = ["console.", "Math.", "Object.", "Array.", "JSON.", "String.", "Number.", "Promise."];
+        if (callee && !skip.some(s => callee.startsWith(s))) {
           const shortCallee = callee.length > 40 ? callee.slice(0, 37) + "..." : callee;
           lines.push(`${indent}CALL:${shortCallee}`);
         }
-        return;
+        break;
       }
     }
 
