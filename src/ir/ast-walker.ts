@@ -19,6 +19,10 @@ const TIER_MAP: Record<string, Tier> = {
   import_from_statement: "T1_KEEP",
   decorated_definition: "T1_KEEP",
 
+  // Tier 1 — class members (qualified methods)
+  method_definition: "T1_KEEP",          // JS/TS class method
+  public_field_definition: "T1_KEEP",    // TS class property
+
   // Tier 1 — Go
   function_item: "T1_KEEP",       // Rust
   method_declaration: "T1_KEEP",  // Go
@@ -97,6 +101,61 @@ export function isExported(node: SyntaxNode): boolean {
 
 export function isAsync(node: SyntaxNode): boolean {
   return node.text.trimStart().startsWith("async");
+}
+
+// Extract JSDoc/docstring immediately preceding a declaration
+export function extractDocComment(node: SyntaxNode): string | null {
+  // Check previous sibling of node, or of its export_statement parent
+  let prev = node.previousNamedSibling;
+  if (!prev && node.parent?.type === "export_statement") {
+    prev = node.parent.previousNamedSibling;
+  }
+  if (!prev || prev.type !== "comment") return null;
+
+  const text = prev.text;
+  if (!text.startsWith("/**")) return null;
+
+  const body = text.replace(/^\/\*\*|\*\/$/g, "").replace(/^\s*\*\s?/gm, "").trim();
+
+  // Extract known tags
+  const tags: string[] = [];
+  const tagMatches = body.matchAll(/@(\w+)(?:\s+([^\n@]+))?/g);
+  for (const m of tagMatches) {
+    const tag = m[1];
+    const val = (m[2] ?? "").trim();
+    if (tag === "deprecated") tags.push("@deprecated");
+    else if (tag === "internal") tags.push("@internal");
+    else if (tag === "throws" && val) tags.push(`@throws:${val.length > 30 ? val.slice(0, 27) + "..." : val}`);
+  }
+
+  // First sentence of description — text BEFORE any @tag
+  const beforeTags = body.split(/@\w+/)[0].trim();
+  const desc = beforeTags.split(/[.\n]/)[0].trim();
+
+  const parts: string[] = [];
+  if (tags.length > 0) parts.push(tags.join(" "));
+  if (desc && desc.length > 3) {
+    parts.push(`"${desc.length > 50 ? desc.slice(0, 47) + "..." : desc}"`);
+  }
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
+// Extract Python docstring (first string literal inside a function/class body)
+export function extractPythonDocstring(bodyNode: SyntaxNode | null): string | null {
+  if (!bodyNode) return null;
+  for (let i = 0; i < bodyNode.childCount; i++) {
+    const child = bodyNode.child(i)!;
+    if (child.type === "expression_statement" && child.childCount > 0) {
+      const expr = child.child(0)!;
+      if (expr.type === "string") {
+        const text = expr.text.replace(/^(['"]{3}|['"])|(['"]{3}|['"])$/g, "").trim();
+        const firstLine = text.split("\n")[0].trim();
+        return firstLine.length > 3 ? `"${firstLine.length > 50 ? firstLine.slice(0, 47) + "..." : firstLine}"` : null;
+      }
+      break; // Only check first statement
+    }
+  }
+  return null;
 }
 
 function extractCondition(node: SyntaxNode): string {
@@ -245,29 +304,64 @@ function emitTier1(node: SyntaxNode): string | null {
       const rawParams = node.childForFieldName("parameters")?.text ?? "()";
       const params = collapseText(rawParams, 60);
       const asyncPrefix = isAsync(node) ? "ASYNC " : "";
-      return `${outPrefix}${asyncPrefix}FN:${name}${params}`;
+      const doc = extractDocComment(node);
+      const docPrefix = doc ? `${doc} ` : "";
+      return `${docPrefix}${outPrefix}${asyncPrefix}FN:${name}${params}`;
     }
 
     case "class_declaration": {
       const name = node.childForFieldName("name")?.text ?? "Anonymous";
       const typeParams = getTypeParams(node);
-      return `${outPrefix}CLASS:${name}${typeParams}`;
+      const doc = extractDocComment(node);
+      const docPrefix = doc ? `${doc} ` : "";
+      return `${docPrefix}${outPrefix}CLASS:${name}${typeParams}`;
     }
 
     case "interface_declaration": {
       const name = node.childForFieldName("name")?.text ?? "Anonymous";
       const typeParams = getTypeParams(node);
-      return `${outPrefix}INTERFACE:${name}${typeParams}`;
+      const doc = extractDocComment(node);
+      const docPrefix = doc ? `${doc} ` : "";
+      return `${docPrefix}${outPrefix}INTERFACE:${name}${typeParams}`;
     }
 
     case "type_alias_declaration": {
       const name = node.childForFieldName("name")?.text ?? "Anonymous";
-      return `${outPrefix}TYPE:${name}`;
+      const doc = extractDocComment(node);
+      const docPrefix = doc ? `${doc} ` : "";
+      return `${docPrefix}${outPrefix}TYPE:${name}`;
     }
 
     case "enum_declaration": {
       const name = node.childForFieldName("name")?.text ?? "Anonymous";
-      return `${outPrefix}ENUM:${name}`;
+      const doc = extractDocComment(node);
+      const docPrefix = doc ? `${doc} ` : "";
+      return `${docPrefix}${outPrefix}ENUM:${name}`;
+    }
+
+    case "method_definition": {
+      // Find enclosing class for qualified name (Class.method)
+      let enclosingClass: string | null = null;
+      let parent: SyntaxNode | null = node.parent;
+      while (parent) {
+        if (parent.type === "class_declaration" || parent.type === "class_definition") {
+          enclosingClass = parent.childForFieldName("name")?.text ?? null;
+          break;
+        }
+        parent = parent.parent;
+      }
+      const name = node.childForFieldName("name")?.text ?? "anonymous";
+      const params = node.childForFieldName("parameters")?.text ?? "()";
+      const asyncPrefix = isAsync(node) ? "ASYNC " : "";
+      const doc = extractDocComment(node);
+      const docPrefix = doc ? `${doc} ` : "";
+      const qualifiedName = enclosingClass ? `${enclosingClass}.${name}` : name;
+      return `${docPrefix}${asyncPrefix}METHOD:${qualifiedName}${collapseText(params, 60)}`;
+    }
+
+    case "public_field_definition": {
+      const name = node.childForFieldName("name")?.text ?? "field";
+      return `FIELD:${name}`;
     }
 
     // Python
@@ -276,13 +370,19 @@ function emitTier1(node: SyntaxNode): string | null {
       const params = node.childForFieldName("parameters")?.text ?? "()";
       const returnType = node.childForFieldName("return_type")?.text ?? "";
       const rt = returnType ? ` -> ${returnType}` : "";
-      return `FN:${name}${collapseText(params, 60)}${rt}`;
+      const body = node.childForFieldName("body");
+      const doc = extractPythonDocstring(body);
+      const docPrefix = doc ? `${doc} ` : "";
+      return `${docPrefix}FN:${name}${collapseText(params, 60)}${rt}`;
     }
     case "class_definition": {
       const name = node.childForFieldName("name")?.text ?? "Anonymous";
       const superclass = node.childForFieldName("superclasses")?.text ?? "";
       const sc = superclass ? `(${collapseText(superclass, 40)})` : "";
-      return `CLASS:${name}${sc}`;
+      const body = node.childForFieldName("body");
+      const doc = extractPythonDocstring(body);
+      const docPrefix = doc ? `${doc} ` : "";
+      return `${docPrefix}CLASS:${name}${sc}`;
     }
     case "import_from_statement": {
       return `USE:${collapseText(node.text, 80)}`;
