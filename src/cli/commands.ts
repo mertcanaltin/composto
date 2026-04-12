@@ -203,8 +203,11 @@ export async function runBenchmarkQuality(projectPath: string, filePath: string)
   }
 }
 
-export async function runContext(projectPath: string, budget: number): Promise<void> {
-  console.log(`composto v0.1.0 — context (budget: ${budget} tokens)\n`);
+export async function runContext(projectPath: string, budget: number, target?: string): Promise<void> {
+  const header = target
+    ? `composto v0.2.1 — context (target: ${target}, budget: ${budget} tokens)\n`
+    : `composto v0.2.1 — context (budget: ${budget} tokens)\n`;
+  console.log(header);
 
   const files = collectFiles(projectPath, ALL_EXTENSIONS);
   console.log(`  ${files.length} files\n`);
@@ -222,15 +225,33 @@ export async function runContext(projectPath: string, budget: number): Promise<v
     return { path: relPath, code, rawTokens: estimateTokens(code) };
   });
 
-  const result = await packContext(fileInputs, { budget, hotspots });
+  const result = await packContext(fileInputs, { budget, hotspots, target });
 
+  if (target && !result.targetFile) {
+    console.log(`  Warning: symbol "${target}" not found in any file. Showing general context.\n`);
+  } else if (result.targetFile) {
+    console.log(`  Target: ${result.targetFile} (contains ${target})\n`);
+  }
+
+  const l3Entries = result.entries.filter(e => e.layer === "L3");
   const l1Entries = result.entries.filter(e => e.layer === "L1");
   const l0Entries = result.entries.filter(e => e.layer === "L0");
+
+  if (l3Entries.length > 0) {
+    console.log("  == L3 (raw — target file) ==\n");
+    for (const entry of l3Entries) {
+      console.log(`  [target] ${entry.path}`);
+      for (const line of entry.ir.split("\n")) {
+        console.log(`    ${line}`);
+      }
+      console.log();
+    }
+  }
 
   if (l1Entries.length > 0) {
     console.log("  == L1 (detailed) ==\n");
     for (const entry of l1Entries) {
-      const label = hotspots.some(h => h.file === entry.path) ? "hotspot" : "detail";
+      const label = entry.isTarget ? "target" : hotspots.some(h => h.file === entry.path) ? "hotspot" : "detail";
       console.log(`  [${label}] ${entry.path}`);
       for (const line of entry.ir.split("\n")) {
         console.log(`    ${line}`);
@@ -249,6 +270,11 @@ export async function runContext(projectPath: string, budget: number): Promise<v
     console.log();
   }
 
+  const parts = [];
+  if (result.filesAtL3 > 0) parts.push(`${result.filesAtL3} at L3 (raw)`);
+  if (result.filesAtL1 > 0) parts.push(`${result.filesAtL1} at L1`);
+  if (result.filesAtL0 > 0) parts.push(`${result.filesAtL0} at L0`);
+
   console.log(`  Budget: ${result.totalTokens}/${result.budget} tokens`);
-  console.log(`  Files: ${result.filesAtL1} at L1, ${result.filesAtL0} at L0`);
+  console.log(`  Files: ${parts.join(", ")}`);
 }

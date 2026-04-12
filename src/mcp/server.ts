@@ -112,12 +112,13 @@ server.tool(
 // Tool 3: composto_context — Smart context within token budget
 server.tool(
   "composto_context",
-  "Pack maximum code context into a token budget. Hotspot files get detailed IR (L1), remaining files get structure only (L0). Use this when you need to understand a large codebase without exceeding context limits.",
+  "Pack maximum code context into a token budget. When target symbol is provided, its file is included as raw code (L3) while surrounding files get compressed IR. Perfect for 'fix this bug in X' or 'why does X return wrong value' — LLM sees exact code of target plus compressed context. Without target, hotspot files get L1, rest get L0.",
   {
     path: z.string().default(".").describe("Directory to pack"),
     budget: z.number().default(4000).describe("Maximum tokens to use"),
+    target: z.string().optional().describe("Target symbol (function/class/variable name). Its file will be included as raw code for implementation tasks."),
   },
-  async ({ path, budget }) => {
+  async ({ path, budget, target }) => {
     const projectPath = resolve(path);
     const files = collectFiles(projectPath, ALL_EXTENSIONS);
     const config = loadConfig(projectPath);
@@ -131,10 +132,21 @@ server.tool(
       const relPath = relative(projectPath, file);
       return { path: relPath, code, rawTokens: estimateTokens(code) };
     });
-    const result = await packContext(fileInputs, { budget, hotspots });
-    const lines = [`Composto Context — ${result.totalTokens}/${result.budget} tokens\n`];
+    const result = await packContext(fileInputs, { budget, hotspots, target });
+    const lines = [`Composto Context — ${result.totalTokens}/${result.budget} tokens`];
+    if (target && result.targetFile) lines.push(`Target: ${target} in ${result.targetFile}`);
+    lines.push("");
+    const l3 = result.entries.filter(e => e.layer === "L3");
     const l1 = result.entries.filter(e => e.layer === "L1");
     const l0 = result.entries.filter(e => e.layer === "L0");
+    if (l3.length > 0) {
+      lines.push("== L3 (raw — target file) ==\n");
+      for (const entry of l3) {
+        lines.push(`[target] ${entry.path}`);
+        lines.push(entry.ir);
+        lines.push("");
+      }
+    }
     if (l1.length > 0) {
       lines.push("== L1 (detailed) ==\n");
       for (const entry of l1) {
@@ -150,7 +162,11 @@ server.tool(
         lines.push(entry.ir);
       }
     }
-    lines.push(`\nFiles: ${result.filesAtL1} at L1, ${result.filesAtL0} at L0`);
+    const parts: string[] = [];
+    if (result.filesAtL3 > 0) parts.push(`${result.filesAtL3} at L3`);
+    if (result.filesAtL1 > 0) parts.push(`${result.filesAtL1} at L1`);
+    if (result.filesAtL0 > 0) parts.push(`${result.filesAtL0} at L0`);
+    lines.push(`\nFiles: ${parts.join(", ")}`);
     return {
       content: [{ type: "text" as const, text: lines.join("\n") }],
     };

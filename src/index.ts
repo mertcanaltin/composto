@@ -40,24 +40,27 @@ switch (command) {
     break;
   }
   case "context": {
-    const projectPath = resolve(args[1] ?? ".");
+    const projectPath = resolve(args[1] && !args[1].startsWith("--") ? args[1] : ".");
     const budgetFlag = args.indexOf("--budget");
     const budget = budgetFlag !== -1 && args[budgetFlag + 1] ? parseInt(args[budgetFlag + 1], 10) : 4000;
-    await runContext(projectPath, budget);
+    const targetFlag = args.indexOf("--target");
+    const target = targetFlag !== -1 && args[targetFlag + 1] ? args[targetFlag + 1] : undefined;
+    await runContext(projectPath, budget, target);
     break;
   }
   case "version":
-    console.log("composto v0.1.0");
+    console.log("composto v0.2.2");
     break;
   default:
-    console.log("composto v0.1.0 — less tokens, more insight\n");
+    console.log("composto v0.2.2 — less tokens, more insight\n");
     console.log("Commands:");
-    console.log("  scan [path]          Scan codebase for issues");
-    console.log("  trends [path]        Analyze codebase health trends");
-    console.log("  ir <file> [layer]    Generate IR for a file (L0|L1|L2|L3)");
-    console.log("  benchmark [path]     Benchmark IR token savings");
-    console.log("  benchmark-quality <file>  Compare AI responses: raw vs IR");
-    console.log("  context [path] --budget N  Smart context within token budget");
-    console.log("  version              Show version");
+    console.log("  scan [path]                           Scan codebase for issues");
+    console.log("  trends [path]                         Analyze codebase health trends");
+    console.log("  ir <file> [layer]                     Generate IR for a file (L0|L1|L2|L3)");
+    console.log("  benchmark [path]                      Benchmark IR token savings");
+    console.log("  benchmark-quality <file>              Compare AI responses: raw vs IR");
+    console.log("  context [path] --budget N             Smart context within token budget");
+    console.log("  context [path] --target <symbol>      Target file as raw, surrounding as IR");
+    console.log("  version                               Show version");
     break;
 }
