@@ -19,9 +19,8 @@ const TIER_MAP: Record<string, Tier> = {
   import_from_statement: "T1_KEEP",
   decorated_definition: "T1_KEEP",
 
-  // Tier 1 — class members (qualified methods)
+  // Tier 1 — class members (qualified methods only, fields dropped as noise)
   method_definition: "T1_KEEP",          // JS/TS class method
-  public_field_definition: "T1_KEEP",    // TS class property
 
   // Tier 1 — Go
   function_item: "T1_KEEP",       // Rust
@@ -103,13 +102,15 @@ export function isAsync(node: SyntaxNode): boolean {
   return node.text.trimStart().startsWith("async");
 }
 
-// Extract JSDoc/docstring immediately preceding a declaration
+// Extract JSDoc/docstring — only for exported symbols, minimal payload
+// Rationale: JSDoc on internal functions is narrative; on public API it's structural.
 export function extractDocComment(node: SyntaxNode): string | null {
-  // Check previous sibling of node, or of its export_statement parent
-  let prev = node.previousNamedSibling;
-  if (!prev && node.parent?.type === "export_statement") {
-    prev = node.parent.previousNamedSibling;
-  }
+  // Only extract doc for exported declarations
+  const exported = node.parent?.type === "export_statement";
+  if (!exported) return null;
+
+  // Comment lives before the export_statement
+  const prev = node.parent?.previousNamedSibling;
   if (!prev || prev.type !== "comment") return null;
 
   const text = prev.text;
@@ -117,30 +118,20 @@ export function extractDocComment(node: SyntaxNode): string | null {
 
   const body = text.replace(/^\/\*\*|\*\/$/g, "").replace(/^\s*\*\s?/gm, "").trim();
 
-  // Extract known tags
-  const tags: string[] = [];
-  const tagMatches = body.matchAll(/@(\w+)(?:\s+([^\n@]+))?/g);
-  for (const m of tagMatches) {
-    const tag = m[1];
-    const val = (m[2] ?? "").trim();
-    if (tag === "deprecated") tags.push("@deprecated");
-    else if (tag === "internal") tags.push("@internal");
-    else if (tag === "throws" && val) tags.push(`@throws:${val.length > 30 ? val.slice(0, 27) + "..." : val}`);
-  }
+  // Only @deprecated tag is structural (affects consumers). Skip others.
+  const hasDeprecated = /@deprecated\b/.test(body);
 
-  // First sentence of description — text BEFORE any @tag
+  // If deprecated, that's enough signal. Don't duplicate with description.
+  if (hasDeprecated) return "@deprecated";
+
+  // Otherwise, very short description (30 char max, first line only)
   const beforeTags = body.split(/@\w+/)[0].trim();
-  const desc = beforeTags.split(/[.\n]/)[0].trim();
-
-  const parts: string[] = [];
-  if (tags.length > 0) parts.push(tags.join(" "));
-  if (desc && desc.length > 3) {
-    parts.push(`"${desc.length > 50 ? desc.slice(0, 47) + "..." : desc}"`);
-  }
-  return parts.length > 0 ? parts.join(" ") : null;
+  const firstLine = beforeTags.split("\n")[0].trim();
+  if (!firstLine || firstLine.length < 5) return null;
+  return `"${firstLine.length > 30 ? firstLine.slice(0, 27) + "..." : firstLine}"`;
 }
 
-// Extract Python docstring (first string literal inside a function/class body)
+// Extract Python docstring (first string literal, 30 char max)
 export function extractPythonDocstring(bodyNode: SyntaxNode | null): string | null {
   if (!bodyNode) return null;
   for (let i = 0; i < bodyNode.childCount; i++) {
@@ -150,9 +141,10 @@ export function extractPythonDocstring(bodyNode: SyntaxNode | null): string | nu
       if (expr.type === "string") {
         const text = expr.text.replace(/^(['"]{3}|['"])|(['"]{3}|['"])$/g, "").trim();
         const firstLine = text.split("\n")[0].trim();
-        return firstLine.length > 3 ? `"${firstLine.length > 50 ? firstLine.slice(0, 47) + "..." : firstLine}"` : null;
+        if (firstLine.length < 5) return null;
+        return `"${firstLine.length > 30 ? firstLine.slice(0, 27) + "..." : firstLine}"`;
       }
-      break; // Only check first statement
+      break;
     }
   }
   return null;
@@ -340,6 +332,10 @@ function emitTier1(node: SyntaxNode): string | null {
     }
 
     case "method_definition": {
+      const name = node.childForFieldName("name")?.text ?? "anonymous";
+      // Skip private methods (# prefix) and common lifecycle methods
+      if (name.startsWith("#") || name.startsWith("_")) return null;
+
       // Find enclosing class for qualified name (Class.method)
       let enclosingClass: string | null = null;
       let parent: SyntaxNode | null = node.parent;
@@ -350,19 +346,13 @@ function emitTier1(node: SyntaxNode): string | null {
         }
         parent = parent.parent;
       }
-      const name = node.childForFieldName("name")?.text ?? "anonymous";
       const params = node.childForFieldName("parameters")?.text ?? "()";
       const asyncPrefix = isAsync(node) ? "ASYNC " : "";
-      const doc = extractDocComment(node);
-      const docPrefix = doc ? `${doc} ` : "";
       const qualifiedName = enclosingClass ? `${enclosingClass}.${name}` : name;
-      return `${docPrefix}${asyncPrefix}METHOD:${qualifiedName}${collapseText(params, 60)}`;
+      // Shorter params truncation for methods (40 vs 60)
+      return `${asyncPrefix}METHOD:${qualifiedName}${collapseText(params, 40)}`;
     }
 
-    case "public_field_definition": {
-      const name = node.childForFieldName("name")?.text ?? "field";
-      return `FIELD:${name}`;
-    }
 
     // Python
     case "function_definition": {
