@@ -41,18 +41,27 @@ switch (command) {
   }
   case "context": {
     const projectPath = resolve(args[1] && !args[1].startsWith("--") ? args[1] : ".");
-    const budgetFlag = args.indexOf("--budget");
-    const budget = budgetFlag !== -1 && args[budgetFlag + 1] ? parseInt(args[budgetFlag + 1], 10) : 4000;
-    const targetFlag = args.indexOf("--target");
-    const target = targetFlag !== -1 && args[targetFlag + 1] ? args[targetFlag + 1] : undefined;
+
+    // Support both --flag value and --flag=value
+    function parseFlag(name: string): string | undefined {
+      const equalsForm = args.find(a => a.startsWith(`--${name}=`));
+      if (equalsForm) return equalsForm.slice(name.length + 3);
+      const idx = args.indexOf(`--${name}`);
+      if (idx !== -1 && args[idx + 1]) return args[idx + 1];
+      return undefined;
+    }
+
+    const budgetStr = parseFlag("budget");
+    const budget = budgetStr ? parseInt(budgetStr, 10) : 4000;
+    const target = parseFlag("target");
     await runContext(projectPath, budget, target);
     break;
   }
   case "version":
-    console.log("composto v0.2.2");
+    console.log("composto v0.2.3");
     break;
   default:
-    console.log("composto v0.2.2 — less tokens, more insight\n");
+    console.log("composto v0.2.3 — less tokens, more insight\n");
     console.log("Commands:");
     console.log("  scan [path]                           Scan codebase for issues");
     console.log("  trends [path]                         Analyze codebase health trends");

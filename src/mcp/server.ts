@@ -37,7 +37,7 @@ function collectFiles(dir: string, extensions: string[]): string[] {
 
 const server = new McpServer({
   name: "composto",
-  version: "0.1.2",
+  version: "0.2.3",
 });
 
 // Tool 1: composto_ir — Generate IR for a file

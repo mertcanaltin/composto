@@ -24,6 +24,7 @@ export interface PackResult {
   filesAtL1: number;
   filesAtL3: number;
   targetFile?: string;
+  targetDowngraded?: boolean;  // true if target file was too large for L3, fell back to L1
 }
 
 export interface PackOptions {
@@ -33,31 +34,48 @@ export interface PackOptions {
 }
 
 // Find which file contains the target symbol
-function findTargetFile(files: FileInput[], target: string): string | null {
-  // Build patterns that match symbol declarations
-  const patterns = [
-    new RegExp(`function\\s+${target}\\b`),
-    new RegExp(`const\\s+${target}\\s*=`),
-    new RegExp(`let\\s+${target}\\s*=`),
-    new RegExp(`var\\s+${target}\\s*=`),
-    new RegExp(`class\\s+${target}\\b`),
-    new RegExp(`interface\\s+${target}\\b`),
-    new RegExp(`type\\s+${target}\\b`),
-    new RegExp(`def\\s+${target}\\b`),
-    new RegExp(`fn\\s+${target}\\b`),
-    new RegExp(`func\\s+${target}\\b`),
-    new RegExp(`${target}\\s*:\\s*function`),
-    new RegExp(`${target}\\s*\\(`),  // fallback: any call with this name
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function findTargetFile(files: FileInput[], target: string): string | null {
+  const t = escapeRegex(target);
+
+  // Declaration patterns — ordered from most specific to least
+  // Each pattern is tried across all files before falling back to the next
+  const declarationPatterns = [
+    // JS/TS declarations
+    new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${t}\\b`),
+    new RegExp(`(?:export\\s+)?class\\s+${t}\\b`),
+    new RegExp(`(?:export\\s+)?interface\\s+${t}\\b`),
+    new RegExp(`(?:export\\s+)?type\\s+${t}\\b`),
+    new RegExp(`(?:export\\s+)?enum\\s+${t}\\b`),
+    new RegExp(`(?:export\\s+)?(?:const|let|var)\\s+${t}\\b`),
+    // Python
+    new RegExp(`\\bdef\\s+${t}\\b`),
+    // Rust
+    new RegExp(`\\bfn\\s+${t}\\b`),
+    new RegExp(`\\bstruct\\s+${t}\\b`),
+    new RegExp(`\\btrait\\s+${t}\\b`),
+    // Go
+    new RegExp(`\\bfunc\\s+${t}\\b`),
+    new RegExp(`\\btype\\s+${t}\\b`),
+    // Object method shorthand
+    new RegExp(`\\b${t}\\s*:\\s*(?:async\\s+)?function\\b`),
+    new RegExp(`\\b${t}\\s*\\([^)]*\\)\\s*\\{`),
   ];
 
-  for (const file of files) {
-    for (const pattern of patterns) {
-      if (pattern.test(file.code)) {
-        return file.path;
-      }
-    }
+  // Try each pattern across all files before moving to the next pattern.
+  // This ensures declarations beat call sites regardless of file order.
+  for (const pattern of declarationPatterns) {
+    const match = files.find(f => pattern.test(f.code));
+    if (match) return match.path;
   }
-  return null;
+
+  // Last-resort fallback: call site anywhere
+  const fallback = new RegExp(`\\b${t}\\s*\\(`);
+  const match = files.find(f => fallback.test(f.code));
+  return match ? match.path : null;
 }
 
 // Find files that import from or are imported by the target file
@@ -110,6 +128,7 @@ export async function packContext(
   const entries: PackEntry[] = [];
   let totalTokens = 0;
   let filesAtL3 = 0;
+  let targetDowngraded = false;
 
   if (targetPath) {
     const targetFile = files.find(f => f.path === targetPath)!;
@@ -126,7 +145,8 @@ export async function packContext(
       totalTokens += rawTokens;
       filesAtL3 = 1;
     } else {
-      // Target file too large even for L3 — fall back to L1
+      // Target file too large even for L3 — fall back to L1 and warn caller
+      targetDowngraded = true;
       const l1 = await generateLayer("L1", { code: targetFile.code, filePath: targetFile.path, health: null });
       const l1Tokens = estimateTokens(l1);
       entries.push({
@@ -168,6 +188,7 @@ export async function packContext(
       filesAtL1: truncated.filter(e => e.layer === "L1").length,
       filesAtL3,
       targetFile: targetPath ?? undefined,
+      targetDowngraded,
     };
   }
 
@@ -219,5 +240,6 @@ export async function packContext(
     filesAtL1,
     filesAtL3,
     targetFile: targetPath ?? undefined,
+    targetDowngraded,
   };
 }
