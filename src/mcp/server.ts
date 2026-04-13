@@ -1,8 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { readFileSync, readdirSync } from "node:fs";
-import { resolve, relative, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { resolve, relative } from "node:path";
 import { generateLayer } from "../ir/layers.js";
 import { computeHealthFromTrends } from "../ir/health.js";
 import { getGitLog } from "../trends/git-log-parser.js";
@@ -14,26 +14,10 @@ import { benchmarkFile, summarize } from "../benchmark/runner.js";
 import { packContext, type FileInput } from "../context/packer.js";
 import { runDetector } from "../watcher/detector.js";
 import { estimateTokens } from "../benchmark/tokenizer.js";
+import { collectFiles } from "../utils/collectFiles.js";
 import type { TrendAnalysis } from "../types.js";
 
 const ALL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs"];
-
-function collectFiles(dir: string, extensions: string[]): string[] {
-  const files: string[] = [];
-  try {
-    const entries = readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name);
-      if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name === "dist") continue;
-      if (entry.isDirectory()) {
-        files.push(...collectFiles(fullPath, extensions));
-      } else if (extensions.some((ext) => entry.name.endsWith(ext))) {
-        files.push(fullPath);
-      }
-    }
-  } catch { /* ignore permission errors */ }
-  return files;
-}
 
 const server = new McpServer({
   name: "composto",
