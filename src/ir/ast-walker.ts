@@ -281,14 +281,172 @@ function emitTier2(node: SyntaxNode): string | null {
   }
 }
 
+// Extract the module path from an import_statement via AST, not text regex.
+// Handles multi-line named imports where text truncation would drop the source.
+function findImportSource(node: SyntaxNode): string | null {
+  for (let i = 0; i < node.childCount; i++) {
+    const c = node.child(i)!;
+    if (c.type === "string") {
+      for (let j = 0; j < c.childCount; j++) {
+        const cc = c.child(j)!;
+        if (cc.type === "string_fragment") return cc.text;
+      }
+      return c.text.replace(/^['"]|['"]$/g, "");
+    }
+  }
+  return null;
+}
+
+function argumentsNode(call: SyntaxNode): SyntaxNode | null {
+  const byField = call.childForFieldName("arguments");
+  if (byField) return byField;
+  for (let i = 0; i < call.childCount; i++) {
+    const c = call.child(i)!;
+    if (c.type === "arguments") return c;
+  }
+  return null;
+}
+
+const ANON_FN_TYPES = new Set([
+  "arrow_function",
+  "function_expression",
+  "function",
+  "generator_function",
+  "generator_function_declaration",
+]);
+
+// Collect anonymous-function arguments from a call expression, walking through
+// nested calls, member-expression receivers (e.g. `.pipe(...)` chains), and
+// parenthesized expressions. Covers Effect.gen, Rpc.toLayer(...).pipe(...),
+// createSlice, defineConfig, chained builders, etc.
+function collectAnonFnArgs(call: SyntaxNode): SyntaxNode[] {
+  const out: SyntaxNode[] = [];
+  const seen = new Set<number>();
+  const visit = (n: SyntaxNode | null, budget: number) => {
+    if (!n || budget < 0 || seen.has(n.id)) return;
+    seen.add(n.id);
+    if (ANON_FN_TYPES.has(n.type)) {
+      out.push(n);
+      return;
+    }
+    if (n.type === "parenthesized_expression") {
+      for (let i = 0; i < n.childCount; i++) visit(n.child(i)!, budget);
+      return;
+    }
+    if (n.type === "call_expression") {
+      // Descend into arguments.
+      const args = argumentsNode(n);
+      if (args) {
+        for (let i = 0; i < args.childCount; i++) visit(args.child(i)!, budget - 1);
+      }
+      // Also descend into the callee receiver to handle `X.pipe(...)` wrappers
+      // where the factory call `X` is what holds the anonymous function.
+      const fn = n.childForFieldName("function");
+      if (fn && fn.type === "member_expression") {
+        const obj = fn.childForFieldName("object");
+        if (obj) visit(obj, budget - 1);
+      }
+    }
+  };
+  visit(call, 4);
+  return out;
+}
+
+function fnBody(fn: SyntaxNode): SyntaxNode | null {
+  const byField = fn.childForFieldName("body");
+  if (byField) return byField;
+  for (let i = 0; i < fn.childCount; i++) {
+    const c = fn.child(i)!;
+    if (c.type === "statement_block" || c.type === "block") return c;
+  }
+  return null;
+}
+
+// Walk the body of an anonymous function looking for `return { key: (...) => ... }`
+// patterns and emit each arrow-function pair as a METHOD. This surfaces the
+// handler-object idiom used by Effect Rpc (`Rpc.toLayer(Effect.gen(function* () {
+// return { handler1, handler2 } }))`), Redux Toolkit `createSlice({ reducers })`,
+// and similar config-object DSLs.
+function walkFactoryBody(fn: SyntaxNode, depth: number, lines: string[]): void {
+  const body = fnBody(fn);
+  if (!body) return;
+  const visit = (n: SyntaxNode, d: number) => {
+    if (d > 6) return;
+    if (n.type === "return_statement") {
+      for (let i = 0; i < n.childCount; i++) {
+        const c = n.child(i)!;
+        if (c.type === "object") {
+          emitObjectMethods(c, depth, lines);
+        }
+      }
+      return;
+    }
+    // Recurse into nested blocks so the return can be anywhere in the function.
+    for (let i = 0; i < n.childCount; i++) visit(n.child(i)!, d + 1);
+  };
+  for (let i = 0; i < body.childCount; i++) visit(body.child(i)!, 0);
+
+  // Also walk nested T1 declarations inside the factory body so helpers
+  // defined alongside the returned object still appear in IR. Skip
+  // return_statements: their handler-object contents are already surfaced
+  // as METHOD lines above, and re-walking would emit a noisy RET duplicate.
+  for (let i = 0; i < body.childCount; i++) {
+    const child = body.child(i)!;
+    if (child.type === "return_statement") continue;
+    walkNode(child, depth + 1, lines);
+  }
+}
+
+function emitObjectMethods(obj: SyntaxNode, depth: number, lines: string[]): void {
+  const indent = "  ".repeat(depth);
+  for (let i = 0; i < obj.childCount; i++) {
+    const child = obj.child(i)!;
+    if (child.type !== "pair") continue;
+    const key = child.childForFieldName("key");
+    const value = child.childForFieldName("value");
+    if (!key || !value) continue;
+    const keyName = key.text;
+    if (keyName.startsWith("_") || keyName.startsWith("#")) continue;
+    if (ANON_FN_TYPES.has(value.type)) {
+      const params = value.childForFieldName("parameters")?.text ?? "()";
+      const asyncPrefix = isAsync(value) ? "ASYNC " : "";
+      lines.push(`${indent}${asyncPrefix}METHOD:${keyName}${collapseText(params, 40)}`);
+    }
+  }
+}
+
+// True when a lexical_declaration's RHS is a call expression whose arguments
+// include an anonymous function (directly or one nested call level deep).
+function isFactoryDeclaration(node: SyntaxNode): { name: string; fns: SyntaxNode[] } | null {
+  let declarator: SyntaxNode | null = null;
+  for (let i = 0; i < node.childCount; i++) {
+    const c = node.child(i)!;
+    if (c.type === "variable_declarator") {
+      declarator = c;
+      break;
+    }
+  }
+  if (!declarator) return null;
+  const name = declarator.childForFieldName("name")?.text;
+  const value = declarator.childForFieldName("value");
+  if (!name || !value || value.type !== "call_expression") return null;
+  const fns = collectAnonFnArgs(value);
+  if (fns.length === 0) return null;
+  return { name, fns };
+}
+
 function emitTier1(node: SyntaxNode): string | null {
   const exported = isExported(node);
   const outPrefix = exported ? "OUT " : "";
 
   switch (node.type) {
     case "import_statement": {
-      const text = collapseText(node.text, 80);
-      return `USE:${text}`;
+      // Extract module source from AST (string > string_fragment) instead of
+      // regex on collapsed text. Collapsed text truncates long imports before
+      // the `from "..."` clause, breaking downstream module-name extraction.
+      const source = findImportSource(node);
+      if (source) return `USE:${source}`;
+      return `USE:${collapseText(node.text, 80)}`;
     }
 
     case "function_declaration": {
@@ -577,12 +735,29 @@ function walkNode(node: SyntaxNode, depth: number, lines: string[]): void {
     }
 
     case "T3_COMPRESS": {
-      // At deep nesting, expression details are noise — skip
+      // At deep nesting, expression details are noise - skip
       if (depth > 4) break;
+
+      // Factory-declaration pattern: `const X = call(fn)` where the call
+      // receives an anonymous function. Covers Effect.gen, Redux createSlice,
+      // TanStack createRouter, defineConfig, etc. Emit the declaration and
+      // walk the anonymous function body so its returned methods appear.
+      if (node.type === "lexical_declaration") {
+        const factory = isFactoryDeclaration(node);
+        if (factory) {
+          const exported = isExported(node) || node.parent?.type === "export_statement";
+          const prefix = exported ? "OUT " : "";
+          const indent = "  ".repeat(depth);
+          lines.push(`${indent}${prefix}FN:${factory.name}`);
+          for (const fn of factory.fns) walkFactoryBody(fn, depth + 1, lines);
+          break;
+        }
+      }
+
       const line = emitTier3(node);
       const indent = "  ".repeat(depth);
       if (line) lines.push(indent + line);
-      // Don't walk children — one-liner is enough
+      // Don't walk children - one-liner is enough
       break;
     }
 
@@ -627,8 +802,9 @@ export async function astWalkIR(code: string, filePath: string): Promise<string 
   let useBlock: string[] = [];
   for (const line of lines) {
     if (line.startsWith("USE:")) {
-      const m = line.match(/from\s+["']([^"']+)["']/);
-      useBlock.push(m ? m[1] : line.slice(4));
+      // emitTier1 now emits clean `USE:<module>` strings via findImportSource,
+      // so no fallback regex is needed.
+      useBlock.push(line.slice(4));
     } else {
       if (useBlock.length > 0) {
         if (useBlock.length <= 3) {
