@@ -10,7 +10,7 @@ import { generateLayer } from '../src/ir/layers.ts';
 import { estimateTokens } from '../src/benchmark/tokenizer.ts';
 
 const FILE = process.argv[2] ?? '/Users/mert/Desktop/enjoy/fastify/lib/reply.js';
-const QUESTION = process.argv[3] ?? "Explain what this file does. List the main functions and describe their responsibilities.";
+const QUESTION = "Explain how this file handles payload dispatch. What are the main checks it performs?";
 
 // Terminal colors for dramatic effect
 const c = {
