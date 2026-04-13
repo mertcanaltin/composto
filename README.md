@@ -39,6 +39,17 @@ composto ir src/app.ts
 composto context src/ --budget 2000
 ```
 
+### MCP plugin (Claude Code, Cursor, Claude Desktop)
+
+The MCP server is bundled inside `composto-ai`. Install the package globally first, then register the server:
+
+```bash
+npm install -g composto-ai
+claude mcp add composto -- composto-mcp
+```
+
+Composto adds 4 tools to your AI assistant: `composto_ir`, `composto_benchmark`, `composto_context`, `composto_scan`.
+
 ---
 
 ## How It Works
