@@ -1,5 +1,5 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { readFileSync } from "node:fs";
+import { relative } from "node:path";
 import { loadConfig } from "../config/loader.js";
 import { runDetector } from "../watcher/detector.js";
 import { generateLayer } from "../ir/layers.js";
@@ -14,24 +14,8 @@ import { benchmarkFile, summarize, type FileResult } from "../benchmark/runner.j
 import { runQualityBenchmark } from "../benchmark/quality.js";
 import { packContext, type FileInput } from "../context/packer.js";
 import { estimateTokens } from "../benchmark/tokenizer.js";
+import { collectFiles } from "../utils/collectFiles.js";
 import type { TrendAnalysis, Finding } from "../types.js";
-
-function collectFiles(dir: string, extensions: string[]): string[] {
-  const files: string[] = [];
-  try {
-    const entries = readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name);
-      if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name === "dist") continue;
-      if (entry.isDirectory()) {
-        files.push(...collectFiles(fullPath, extensions));
-      } else if (extensions.some((ext) => entry.name.endsWith(ext))) {
-        files.push(fullPath);
-      }
-    }
-  } catch { /* ignore permission errors */ }
-  return files;
-}
 
 export function runScan(projectPath: string): void {
   const adapter = new CLIAdapter();
