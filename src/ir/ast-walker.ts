@@ -401,16 +401,36 @@ function emitObjectMethods(obj: SyntaxNode, depth: number, lines: string[]): voi
   const indent = "  ".repeat(depth);
   for (let i = 0; i < obj.childCount; i++) {
     const child = obj.child(i)!;
-    if (child.type !== "pair") continue;
-    const key = child.childForFieldName("key");
-    const value = child.childForFieldName("value");
-    if (!key || !value) continue;
-    const keyName = key.text;
-    if (keyName.startsWith("_") || keyName.startsWith("#")) continue;
-    if (ANON_FN_TYPES.has(value.type)) {
-      const params = value.childForFieldName("parameters")?.text ?? "()";
-      const asyncPrefix = isAsync(value) ? "ASYNC " : "";
+    if (child.type === "pair") {
+      const key = child.childForFieldName("key");
+      const value = child.childForFieldName("value");
+      if (!key || !value) continue;
+      const keyName = key.text;
+      if (keyName.startsWith("_") || keyName.startsWith("#")) continue;
+      if (ANON_FN_TYPES.has(value.type)) {
+        const params = value.childForFieldName("parameters")?.text ?? "()";
+        const asyncPrefix = isAsync(value) ? "ASYNC " : "";
+        lines.push(`${indent}${asyncPrefix}METHOD:${keyName}${collapseText(params, 40)}`);
+      }
+      continue;
+    }
+    // shorthand property: { send, list }
+    if (child.type === "shorthand_property_identifier") {
+      const keyName = child.text;
+      if (keyName.startsWith("_") || keyName.startsWith("#")) continue;
+      lines.push(`${indent}METHOD:${keyName}`);
+      continue;
+    }
+    // method definition: { send(x) {} }
+    if (child.type === "method_definition") {
+      const key = child.childForFieldName("name");
+      if (!key) continue;
+      const keyName = key.text;
+      if (keyName.startsWith("_") || keyName.startsWith("#")) continue;
+      const params = child.childForFieldName("parameters")?.text ?? "()";
+      const asyncPrefix = isAsync(child) ? "ASYNC " : "";
       lines.push(`${indent}${asyncPrefix}METHOD:${keyName}${collapseText(params, 40)}`);
+      continue;
     }
   }
 }

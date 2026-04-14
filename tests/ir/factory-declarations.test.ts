@@ -90,6 +90,49 @@ export function main() { return 1; }`;
     });
   });
 
+  describe("shorthand properties and method definitions", () => {
+    it("emits METHOD for shorthand properties (Vite/Zustand style)", async () => {
+      const code = `
+export const store = create(() => {
+  const send = (x: number) => x;
+  const list = () => [];
+  return { send, list };
+});`;
+      const ir = await astWalkIR(code, "store.ts");
+      expect(ir).toContain("METHOD:send");
+      expect(ir).toContain("METHOD:list");
+    });
+
+    it("emits METHOD for method_definition shorthand (TanStack style)", async () => {
+      const code = `
+export const plugin = defineConfig(() => {
+  return {
+    send(input: SendInput) { return input; },
+    async list(filter: string) { return []; },
+  };
+});`;
+      const ir = await astWalkIR(code, "plugin.ts");
+      expect(ir).toContain("METHOD:send(input: SendInput)");
+      expect(ir).toContain("ASYNC METHOD:list(filter: string)");
+    });
+
+    it("skips private keys in shorthand and method_definition", async () => {
+      const code = `
+export const x = make(() => {
+  const _internal = 1;
+  return {
+    _internal,
+    public(y: string) { return y; },
+    _hidden(z: number) { return z; },
+  };
+});`;
+      const ir = await astWalkIR(code, "x.ts");
+      expect(ir).toContain("METHOD:public(y: string)");
+      expect(ir).not.toContain("_internal");
+      expect(ir).not.toContain("_hidden");
+    });
+  });
+
   describe("multiple handlers + nested declarations", () => {
     it("emits helpers defined alongside the returned handler object", async () => {
       const code = `
