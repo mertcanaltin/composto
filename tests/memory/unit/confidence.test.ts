@@ -38,11 +38,13 @@ describe("computeScoreAndConfidence", () => {
 
   it("confidence is dominated by the weakest factor", () => {
     const { confidence } = computeScoreAndConfidence(
-      [signal({ strength: 1.0, precision: 0.9, sample_size: 5 })],
+      [signal({ strength: 1.0, precision: 0.9, sample_size: 50 })],
       { tazelik: "fresh", partial: false, totalCommits: 30 }
     );
-    // history_factor = 0.2 (n<50); calibration_factor = 0.3 (sample<20)
-    // coverage_factor = 1/3; freshness_factor = 1.0
+    // coverage_factor: 1 usable signal → 1/3 = 0.333
+    // calibration_factor: avg_sample=50 → 0.6
+    // freshness_factor: fresh → 1.0
+    // history_factor: n<50 → 0.2
     // min = 0.2
     expect(confidence).toBeCloseTo(0.2, 2);
   });

@@ -16,7 +16,9 @@ export interface ScoreAndConfidence {
 const USABLE_SAMPLE_THRESHOLD = 20;
 
 function coverageFactor(signals: Signal[]): number {
-  const usable = signals.filter((s) => s.strength > 0).length;
+  const usable = signals.filter(
+    (s) => s.strength > 0 && s.sample_size >= USABLE_SAMPLE_THRESHOLD
+  ).length;
   return Math.min(1.0, usable / 3);
 }
 
