@@ -15,5 +15,11 @@ export default defineConfig({
         cpSync(`grammars/${file}`, `dist/grammars/${file}`);
       }
     }
+    mkdirSync("dist/memory/migrations", { recursive: true });
+    for (const file of readdirSync("src/memory/migrations")) {
+      if (file.endsWith(".sql")) {
+        cpSync(`src/memory/migrations/${file}`, `dist/memory/migrations/${file}`);
+      }
+    }
   },
 });
