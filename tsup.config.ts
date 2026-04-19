@@ -16,9 +16,13 @@ export default defineConfig({
         cpSync(`grammars/${file}`, `dist/grammars/${file}`);
       }
     }
+    // Copy migrations to both dist/migrations (for bundled CLI at dist/index.js)
+    // and dist/memory/migrations (for separate API entry point)
+    mkdirSync("dist/migrations", { recursive: true });
     mkdirSync("dist/memory/migrations", { recursive: true });
     for (const file of readdirSync("src/memory/migrations")) {
       if (file.endsWith(".sql")) {
+        cpSync(`src/memory/migrations/${file}`, `dist/migrations/${file}`);
         cpSync(`src/memory/migrations/${file}`, `dist/memory/migrations/${file}`);
       }
     }

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { relative } from "node:path";
+import { relative, join } from "node:path";
 import { loadConfig } from "../config/loader.js";
 import { runDetector } from "../watcher/detector.js";
 import { generateLayer } from "../ir/layers.js";
@@ -16,6 +16,7 @@ import { packContext, type FileInput } from "../context/packer.js";
 import { estimateTokens } from "../benchmark/tokenizer.js";
 import { collectFiles } from "../utils/collectFiles.js";
 import type { TrendAnalysis, Finding } from "../types.js";
+import { MemoryAPI } from "../memory/api.js";
 
 export function runScan(projectPath: string): void {
   const adapter = new CLIAdapter();
@@ -265,4 +266,54 @@ export async function runContext(projectPath: string, budget: number, target?: s
 
   console.log(`  Budget: ${result.totalTokens}/${result.budget} tokens`);
   console.log(`  Files: ${parts.join(", ")}`);
+}
+
+export async function runImpact(
+  projectPath: string,
+  file: string,
+  opts: { intent?: string; level?: string } = {}
+): Promise<void> {
+  const dbPath = join(projectPath, ".composto", "memory.db");
+  const api = new MemoryAPI({ dbPath, repoPath: projectPath });
+  try {
+    await api.bootstrapIfNeeded();
+    const res = await api.blastradius({
+      file,
+      intent: opts.intent as any,
+      level: opts.level as any,
+    });
+
+    if (res.status !== "ok") {
+      console.log(`status:     ${res.status}`);
+      if (res.reason) console.log(`reason:     ${res.reason}`);
+      console.log(`verdict:    ${res.verdict}`);
+      console.log(`confidence: ${res.confidence.toFixed(2)}`);
+      return;
+    }
+
+    console.log(`verdict:    ${res.verdict}`);
+    console.log(`score:      ${res.score.toFixed(2)}`);
+    console.log(`confidence: ${res.confidence.toFixed(2)}`);
+    console.log(`tazelik:    ${res.metadata.tazelik}`);
+    console.log(`signals:`);
+    for (const s of res.signals) {
+      const bar = s.strength > 0 ? "■".repeat(Math.max(1, Math.round(s.strength * 10))) : "·";
+      console.log(`  ${s.type.padEnd(18)} ${bar.padEnd(10)} strength=${s.strength.toFixed(2)} precision=${s.precision.toFixed(2)}`);
+    }
+  } finally {
+    await api.close();
+  }
+}
+
+export async function runIndex(projectPath: string): Promise<void> {
+  const dbPath = join(projectPath, ".composto", "memory.db");
+  const api = new MemoryAPI({ dbPath, repoPath: projectPath });
+  try {
+    console.log("composto: bootstrapping memory index...");
+    const start = Date.now();
+    await api.bootstrapIfNeeded();
+    console.log(`composto: index ready (${Date.now() - start} ms)`);
+  } finally {
+    await api.close();
+  }
 }

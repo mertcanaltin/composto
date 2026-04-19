@@ -1,4 +1,7 @@
-import { runScan, runTrends, runIR, runBenchmark, runBenchmarkQuality, runContext } from "./cli/commands.js";
+import {
+  runScan, runTrends, runIR, runBenchmark, runBenchmarkQuality, runContext,
+  runImpact, runIndex,
+} from "./cli/commands.js";
 import { resolve } from "node:path";
 
 const args = process.argv.slice(2);
@@ -57,6 +60,24 @@ switch (command) {
     await runContext(projectPath, budget, target);
     break;
   }
+  case "impact": {
+    const filePath = args[1];
+    if (!filePath) {
+      console.error("Usage: composto impact <file> [--intent=bugfix] [--level=detail]");
+      process.exit(1);
+    }
+    const intentArg = args.find((a) => a.startsWith("--intent="));
+    const levelArg = args.find((a) => a.startsWith("--level="));
+    await runImpact(resolve("."), filePath, {
+      intent: intentArg?.slice("--intent=".length),
+      level: levelArg?.slice("--level=".length),
+    });
+    break;
+  }
+  case "index": {
+    await runIndex(resolve("."));
+    break;
+  }
   case "version":
     console.log("composto v0.2.3");
     break;
@@ -70,6 +91,8 @@ switch (command) {
     console.log("  benchmark-quality <file>              Compare AI responses: raw vs IR");
     console.log("  context [path] --budget N             Smart context within token budget");
     console.log("  context [path] --target <symbol>      Target file as raw, surrounding as IR");
+    console.log("  impact <file>                         Show historical blast radius for a file");
+    console.log("  index                                 Build or refresh the memory index");
     console.log("  version                               Show version");
     break;
 }
