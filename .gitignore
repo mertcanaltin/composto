@@ -7,3 +7,8 @@ composto-benchmark-workspace/
 .claude/
 skills-lock.json
 SKILL.md
+
+# Local development docs — not part of the public repo
+CLAUDE.md
+docs/superpowers/plans/
+.composto/
