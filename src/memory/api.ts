@@ -112,7 +112,7 @@ export class MemoryAPI {
       .get() as { value: string } | undefined)?.value ?? "";
 
     // 4. Signals + math
-    const signals = collectSignals(this.db, input.file);
+    const signals = collectSignals(this.db, this.repoPath, input.file);
     const tazelik: Tazelik = fresh.tazelik === "bootstrapping" ? "fresh" : fresh.tazelik;
     const { score, confidence } = computeScoreAndConfidence(signals, {
       tazelik,
