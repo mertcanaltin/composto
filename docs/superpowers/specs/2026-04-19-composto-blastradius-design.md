@@ -210,7 +210,7 @@ CREATE TABLE file_index_state (
 | Medium | 10k | ~50k | ~200k | ~30 MB |
 | Large | 100k | ~500k | ~2M | ~250 MB |
 
-Because Tier 2 (`symbol_touches`) is lazy, typical actual size is ~1/10 of the fully-populated ceiling.
+Because Tier 2 (`symbol_touches`) populates only on `blastradius` calls that provide a `diff` (§5.2), typical actual size is far below the fully-populated ceiling — commonly under 10% of the listed `symbol_touches` figure.
 
 ### 4.4 Query patterns covered by indexes
 
@@ -243,7 +243,11 @@ Incremental delta: same pipeline but on `last_indexed_sha..HEAD`. Typical delta 
 
 ### 5.2 Ingest — Tier 2 (AST, per-file, lazy)
 
-Triggered by: a `blastradius(file)` call where `file_index_state` has no entry for the file, or the file's last-indexed commit is older than the file's newest touch.
+Triggered **only when a `blastradius` call provides the `diff` parameter** and the file's Tier 2 cache is missing or stale. The five v1 signals (§6.2) are all satisfied by Tier 1 tables; Tier 2 exists to support symbol-granularity narrowing when a diff is available, and to unblock follow-on primitives that need it.
+
+Without `diff`, the tool responds entirely from Tier 1 and never incurs Tier 2 cost. This keeps the default path (summary, no diff) free of cold-start latency beyond Tier 1 bootstrap.
+
+Staleness rule: `file_index_state` has no entry for the file, or the file's `last_commit_indexed` is older than the most recent commit touching that file.
 
 1. Load commits that touched this file from `file_touches` (ordered by timestamp).
 2. For each commit, `git show <sha>:<file>` and `git show <sha^>:<file>`; tree-sitter parse both.
@@ -258,7 +262,7 @@ Timeline for a hot-path call:
 
 - `t=0ms`: Call arrives at `src/mcp/server.ts`, routes to `memory/api.ts::blastradius()`.
 - `t=1ms`: `ensureFresh()` — shell `git rev-parse HEAD` (~1ms), read `last_indexed_sha` from `index_state` (<1ms). If mismatched, non-blocking enqueue of delta ingest and set `tazelik = "catching_up"`; otherwise `tazelik = "fresh"`.
-- `t=3ms`: Check `file_index_state`. If missing or stale, enqueue Tier 2 ingest. If Tier 1 is fresh and last-50-commit signals are sufficient, continue in `partial_mode`; otherwise return `{status: "indexing", retry_hint_ms: 800}`.
+- `t=3ms`: If the call provides `diff`, check `file_index_state` and enqueue Tier 2 ingest on a miss; while Tier 2 is building, fall back to file-level signals. If Tier 1 itself is not yet bootstrapped, return `{status: "indexing", retry_hint_ms: 800}` immediately unless last-50-commit partial signals are available.
 - `t=5ms`: Fire parallel SQLite reads for five signals:
   - `revert_match` from `fix_links` where `suspected_break_sha` affected the file
   - `hotspot` from `file_touches` in last 90 days
@@ -395,7 +399,7 @@ All degraded modes are first-class status values returned in the envelope. `conf
 | `empty_repo` | <10 commits | `verdict: "unknown"`, no signals | 0.0 |
 | `insufficient_history` | 10–49 commits | Only `hotspot` fires; no calibration | 0.3 |
 | `shallow_clone` | `git rev-parse --is-shallow-repository` returns true | `verdict: "unknown"`, suggest `composto index --deepen` | 0.0 |
-| `indexing` | Tier 1 bootstrap running | Partial result from last 50 commits if available, else `retry_hint_ms: 800` | 0.4 |
+| `indexing` | Tier 1 bootstrap running (Tier 2 misses do not surface this status; they silently fall back to file-level signals) | Partial result from last 50 commits if available, else `retry_hint_ms: 800` | 0.4 |
 | `squashed_history` | Heuristic: single author + narrow time window across many commits | Score computed, cap applied | 0.5 |
 | `reindexing` | History rewrite detected | `verdict: "unknown"` until rebuild completes | 0.0 |
 | `internal_error` | Unknown failure; surfaced rather than hidden | Log reference in `reason`; tool not disabled unless three-strike | 0.0 |
@@ -483,6 +487,9 @@ Annotations:
     "query_ms": 18,
     "signal_coverage": "4/5"
   }
+  // signal_coverage is "<usable>/<total>", where <usable> is the count of signals
+  // whose strength > 0 AND whose calibration.sample_size >= 20. It is the same
+  // quantity that drives coverage_factor in §6.3.
 }
 ```
 
@@ -582,7 +589,7 @@ Levels: `debug|info|warn|error`. Default `info`. Override via `COMPOSTO_LOG=debu
 
 ### 8.5 Three-strike rule
 
-Three consecutive unrecoverable errors in the same subsystem set `status: "disabled"` on the tool. No silent retry loop; user must investigate before re-enabling.
+Three consecutive unrecoverable errors of the same failure class (e.g. `sqlite_corrupt`, `schema_migration_failed`, `worker_crash`) across any caller within a 5-minute window set `status: "disabled"` on the tool. While disabled, `composto_blastradius` returns that status immediately without further work. The flag clears on successful `composto index --rebuild` or when `.composto/memory.db` is removed. No silent retry loop; user must investigate before re-enabling.
 
 ### 8.6 Explicitly not included in v1
 
@@ -620,7 +627,7 @@ Each fixture asserts: bootstrap completes, `blastradius` query returns expected 
 
 Public-repo precision/recall evidence, published as `docs/blastradius-proof.md`:
 
-1. Choose target repos (Composto itself, Node.js, React, vitest).
+1. Choose three public OSS repos of moderate scale (roughly 2k–15k commits): Composto itself, `vitest`, and one additional project with a visible fix history (e.g. `zod` or `picomatch`). Very large repos (Node.js, React) are out of scope for the backtest — runtime and noise both dominate.
 2. For each historical fix commit, compute what `blastradius` would have returned at the preceding HEAD for the files the fix touched.
 3. Treat the subsequent fix as ground truth for "risk existed".
 4. Report precision and recall for the `medium|high` verdict band.
