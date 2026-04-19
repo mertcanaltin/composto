@@ -26,7 +26,7 @@ describe("buildEnvelope", () => {
     expect(env.verdict).toBe("medium");
     expect(env.signals.length).toBe(5);
     expect(env.metadata.signal_coverage).toBe("1/5");
-    expect(env.calibration).toBe("heuristic"); // Plan 1 default
+    expect(env.calibration).toBe("repo-calibrated"); // any firing signal with sample_size > 0 → repo-calibrated
   });
 
   it("sets verdict 'unknown' when confidence is below threshold", () => {
@@ -41,6 +41,20 @@ describe("buildEnvelope", () => {
       queryMs: 5,
     });
     expect(env.verdict).toBe("unknown");
+  });
+
+  it("stays 'heuristic' when all signals have sample_size 0", () => {
+    const env = buildEnvelope({
+      status: "ok",
+      signals: s.map((sig) => ({ ...sig, sample_size: 0 })),
+      score: 0,
+      confidence: 0,
+      tazelik: "fresh",
+      indexedThrough: "abc",
+      indexedTotal: 100,
+      queryMs: 10,
+    });
+    expect(env.calibration).toBe("heuristic");
   });
 
   it("applies confidence_cap on degraded statuses", () => {

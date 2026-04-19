@@ -37,6 +37,10 @@ const CONFIDENCE_CAP: Record<DegradedStatus, number> = {
 
 const USABLE_SAMPLE_THRESHOLD = 20;
 
+function inferCalibrationSource(signals: Signal[]): "repo-calibrated" | "heuristic" {
+  return signals.some((s) => s.sample_size > 0) ? "repo-calibrated" : "heuristic";
+}
+
 export function buildEnvelope(args: BuildArgs): BlastRadiusResponse {
   const cap = CONFIDENCE_CAP[args.status];
   const cappedConfidence = Math.min(args.confidence, cap);
@@ -53,7 +57,7 @@ export function buildEnvelope(args: BuildArgs): BlastRadiusResponse {
     score: args.score,
     confidence: cappedConfidence,
     signals: args.signals,
-    calibration: "heuristic",
+    calibration: inferCalibrationSource(args.signals),
     retry_hint_ms: args.retry_hint_ms,
     confidence_cap: args.status === "ok" ? undefined : cap,
     metadata: {
