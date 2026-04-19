@@ -6,6 +6,7 @@ import type { DB } from "../db.js";
 import type { IngestRange } from "../types.js";
 import { logRange } from "../git.js";
 import { parseCommit } from "../commit-parser.js";
+import { deriveFixLinks } from "./fix-links.js";
 
 const RECORD_SEP = "\x1e";
 const FIELD_SEP = "\x00";
@@ -125,6 +126,8 @@ export function ingestRange(db: DB, repoPath: string, range: IngestRange): numbe
   for (let i = 0; i < commits.length; i += BATCH) {
     tx(commits.slice(i, i + BATCH));
   }
+
+  deriveFixLinks(db);
 
   upsertState.run("last_indexed_sha", range.to);
   const totalRow = db.prepare("SELECT COUNT(*) AS n FROM commits").get() as { n: number };
