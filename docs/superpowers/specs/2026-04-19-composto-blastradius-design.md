@@ -708,9 +708,14 @@ See `docs/superpowers/plans/2026-04-19-blastradius-plan-1-foundation.md`. Ships:
 3. **Worker error type (Plan 3).** `src/memory/pool.ts` `worker.on("error", (err) => ...)` where `err` is `unknown` but `job.reject(err)` expects `Error`. Flagged by Task 7 code review; deferred to Plan 3's error-handling pass.
 4. **Plan 1 file-count deviations from plan-text.** Task 5 (fixture touch-count), Task 7 (pool as tsup entry), Task 11 (coverage formula), Task 14 (splitting:false + pool pool.ts comment), Task 16 (pool.ts bundled-mode + dual migrations copy). All approved during subagent-driven review loops; none change Plan 1's external contract. They represent real integration issues that surfaced during implementation.
 
-### Plan 2–5 (pending)
+### Plan 2 — Signals + Calibration (complete on branch `feature/blastradius-plan-2`)
 
-- **Plan 2** — Remaining four signals (`hotspot`, `fix_ratio`, `coverage_decline`, `author_churn`) + repo-calibrated `signal_calibration` with self-validation + revert-strict `coverage_factor`.
-- **Plan 3** — Full degraded-mode catalogue (shallow_clone, squashed_history, reindexing, disabled three-strike, internal_error), NDJSON logging to `.composto/index.log`, `composto index --status|--deepen|--rebuild`, performance-budget CI gate, path-resolution cleanup.
+See `docs/superpowers/plans/2026-04-19-blastradius-plan-2-signals-and-calibration.md`. Replaces the four Plan 1 stubs with real implementations per spec §6.2: `hotspot` saturates at 30 touches/90d, `fix_ratio` has 30%–80% live range, `coverage_decline` bridges `src/ir/health.ts`, `author_churn` tiers on last-author activity. Adds `signal_calibration` self-validation (`refreshCalibration`) triggered from tier1 ingest via `shouldRefresh` predicate. All signals pull calibrated precision through the shared `getCalibration(db, type, fallback)` helper; envelope auto-flips to `repo-calibrated` when any firing signal carries `sample_size > 0`. `coverage_factor` in `src/memory/confidence.ts` reverted to spec-strict `strength > 0 AND sample_size >= 20`. Full test suite: 209 tests pass (Plan 1's 196 + 13 new unit/integration). `stubs.ts` removed.
+
+**Plan 1 → Plan 2 debt cleared:** item (1) coverage_factor spec-strict semantics restored. Items (2) path resolution and (3) worker error typing remain for Plan 3.
+
+### Plans 3–5 (pending)
+
+- **Plan 3** — Full degraded-mode catalogue (shallow_clone, squashed_history, reindexing, disabled three-strike, internal_error), NDJSON logging to `.composto/index.log`, `composto index --status|--deepen|--rebuild`, performance-budget CI gate, path-resolution cleanup (replace `splitting:false` + dual migrations + pool bundled-mode detection with a single strategy).
 - **Plan 4** — Tier 2 AST ingest (`diff` parameter): per-file `symbol_touches` populated on demand when a blastradius call supplies a unified diff.
 - **Plan 5** — Calibration backtest on three OSS repos + `docs/blastradius-proof.md` + ship-gate validation of precision > 60%, recall > 40% on `medium|high` band.
