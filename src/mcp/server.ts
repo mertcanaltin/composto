@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { readFileSync } from "node:fs";
-import { resolve, relative } from "node:path";
+import { resolve, relative, join } from "node:path";
 import { generateLayer } from "../ir/layers.js";
 import { computeHealthFromTrends } from "../ir/health.js";
 import { getGitLog } from "../trends/git-log-parser.js";
@@ -16,6 +16,7 @@ import { runDetector } from "../watcher/detector.js";
 import { estimateTokens } from "../benchmark/tokenizer.js";
 import { collectFiles } from "../utils/collectFiles.js";
 import type { TrendAnalysis } from "../types.js";
+import { MemoryAPI } from "../memory/api.js";
 
 const ALL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs"];
 
@@ -188,6 +189,38 @@ server.tool(
     return {
       content: [{ type: "text" as const, text: lines.join("\n") }],
     };
+  }
+);
+
+// Tool 5: composto_blastradius — Predict historical blast radius
+server.tool(
+  "composto_blastradius",
+  "Predict the historical blast radius of a code change before applying it. Returns a risk verdict (low/medium/high/unknown), confidence, and the git-derived signals behind it (revert history, hotspots, fix ratio, coverage decline, ownership churn). Call BEFORE proposing significant edits to files with non-trivial history. Honest about uncertainty — returns \"unknown\" when confidence is low instead of guessing. Degraded modes (empty repo, shallow clone, indexing) are explicit in the `status` field.",
+  {
+    file: z.string().describe("Repo-relative path of the file the agent intends to modify."),
+    intent: z.enum(["refactor", "bugfix", "feature", "test", "docs", "unknown"]).default("unknown").optional(),
+    level: z.enum(["summary", "detail"]).default("summary").optional(),
+    diff: z.string().optional().describe("Optional unified diff. When present, narrows blast radius to actually-touched symbols (Plan 4)."),
+  },
+  async ({ file, intent, level, diff }) => {
+    if (process.env.COMPOSTO_BLASTRADIUS !== "1") {
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({
+          status: "disabled",
+          reason: "composto_blastradius is gated by COMPOSTO_BLASTRADIUS=1 during Plan 1 rollout.",
+        }) }],
+      };
+    }
+    const projectPath = resolve(".");
+    const dbPath = join(projectPath, ".composto", "memory.db");
+    const api = new MemoryAPI({ dbPath, repoPath: projectPath });
+    try {
+      await api.bootstrapIfNeeded();
+      const res = await api.blastradius({ file, intent, level, diff });
+      return { content: [{ type: "text" as const, text: JSON.stringify(res, null, 2) }] };
+    } finally {
+      await api.close();
+    }
   }
 );
 
