@@ -714,8 +714,13 @@ See `docs/superpowers/plans/2026-04-19-blastradius-plan-2-signals-and-calibratio
 
 **Plan 1 → Plan 2 debt cleared:** item (1) coverage_factor spec-strict semantics restored. Items (2) path resolution and (3) worker error typing remain for Plan 3.
 
-### Plans 3–5 (pending)
+### Plan 3 — Degraded Modes + Logging + Diagnostic CLI (complete on branch `feature/blastradius-plan-3`)
 
-- **Plan 3** — Full degraded-mode catalogue (shallow_clone, squashed_history, reindexing, disabled three-strike, internal_error), NDJSON logging to `.composto/index.log`, `composto index --status|--deepen|--rebuild`, performance-budget CI gate, path-resolution cleanup (replace `splitting:false` + dual migrations + pool bundled-mode detection with a single strategy).
+See `docs/superpowers/plans/2026-04-19-blastradius-plan-3-degraded-modes-logging.md`. Adds `squashed_history`, `reindexing`, `disabled` (three-strike via `.composto/failures.json`), and `internal_error` (catch-all) to the degraded-mode catalogue. Ships NDJSON logger at `.composto/index.log` with daily rotation + 7-day retention. Ships `composto index --status` for diagnostics (schema version, index freshness, calibration rows, storage footprint, integrity check). Fixes worker `unknown→Error` narrow in pool.ts. Cleans up path-resolution by embedding migration SQL as a string constant — `src/memory/migrations/` directory removed; tsup no longer duplicates SQL across `dist/migrations/` + `dist/memory/migrations/`. Tests: all prior tests continue to pass; Plan 3 adds ~10 new unit/integration tests.
+
+**Plan 1 → Plan 3 debt cleared:** items (2) path resolution brittleness and (3) worker error typing both resolved. Only item (4) (Plan 1's file-count deviations, historical) remains.
+
+### Plans 4–5 (pending)
+
 - **Plan 4** — Tier 2 AST ingest (`diff` parameter): per-file `symbol_touches` populated on demand when a blastradius call supplies a unified diff.
 - **Plan 5** — Calibration backtest on three OSS repos + `docs/blastradius-proof.md` + ship-gate validation of precision > 60%, recall > 40% on `medium|high` band.
