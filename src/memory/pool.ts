@@ -19,18 +19,12 @@ interface PendingJob {
 
 function resolveWorkerPath(): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  // In dev (tsx): here is src/memory, return src/memory/worker.js
-  // In dist with bundling (splitting=false): here is dist, bundled code points to dist/index.js
-  // In dist without bundling (splitting=true): here is dist/memory, return dist/memory/worker.js
-  const workerJsPath = join(here, "worker.js");
-
-  // Check if we're in bundled mode (worker.js not in same directory)
-  // by checking if here ends with 'memory' or is 'dist'
+  // When this code runs as dist/memory/pool.js or dist/memory/api.js,
+  // worker.js is a sibling in the same directory.
+  // When inlined into dist/index.js, worker.js is in the memory/ sub-dir.
   if (here.endsWith("/memory") || here.endsWith("\\memory")) {
-    return workerJsPath;
+    return join(here, "worker.js");
   }
-
-  // Bundled case: worker.js is in memory/ subdirectory
   return join(here, "memory", "worker.js");
 }
 
@@ -56,8 +50,9 @@ export class WorkerPool {
         job.reject(new Error(msg.message));
       }
     });
-    worker.on("error", (err) => {
-      for (const job of this.pending.values()) job.reject(err);
+    worker.on("error", (err: unknown) => {
+      const error = err instanceof Error ? err : new Error(String(err));
+      for (const job of this.pending.values()) job.reject(error);
       this.pending.clear();
     });
     this.workers.push(worker);
