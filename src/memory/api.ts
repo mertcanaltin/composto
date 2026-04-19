@@ -1,6 +1,5 @@
 // src/memory/api.ts
-// Main-thread orchestration: ensureFresh → collect signals → envelope.
-// Ingest is delegated to the worker pool.
+// Main-thread orchestration with full degraded-mode handling (spec §6.5 §8.2).
 
 import { openDatabase, type DB } from "./db.js";
 import { runMigrations } from "./schema.js";
@@ -10,6 +9,10 @@ import { computeScoreAndConfidence } from "./confidence.js";
 import { buildEnvelope } from "./envelope.js";
 import { WorkerPool } from "./pool.js";
 import { countCommits, isShallowRepo } from "./git.js";
+import { detectSquashed } from "./detectors.js";
+import { createFailureTracker, type FailureTracker } from "./failure-tracker.js";
+import { createLogger, type Logger } from "./log.js";
+import { dirname } from "node:path";
 import type {
   BlastRadiusInput,
   BlastRadiusResponse,
@@ -30,14 +33,21 @@ export class MemoryAPI {
   private pool: WorkerPool;
   private readonly dbPath: string;
   private readonly repoPath: string;
+  private readonly compostoDir: string;
+  private readonly log: Logger;
+  private readonly failures: FailureTracker;
   private bootstrapPromise: Promise<void> | null = null;
 
   constructor(opts: MemoryAPIOptions) {
     this.dbPath = opts.dbPath;
     this.repoPath = opts.repoPath;
+    this.compostoDir = dirname(opts.dbPath);
+    this.log = createLogger(this.compostoDir);
+    this.failures = createFailureTracker(this.compostoDir);
     this.db = openDatabase(opts.dbPath);
     runMigrations(this.db);
     this.pool = new WorkerPool({ size: opts.workerPoolSize ?? 1 });
+    this.log.info("api_open", { dbPath: opts.dbPath });
   }
 
   async bootstrapIfNeeded(): Promise<void> {
@@ -48,7 +58,14 @@ export class MemoryAPI {
 
     this.bootstrapPromise = this.pool
       .runIngest({ dbPath: this.dbPath, repoPath: this.repoPath, range: fresh.delta })
-      .then(() => undefined)
+      .then(() => {
+        this.log.info("bootstrap_done", { through: fresh.delta?.to });
+      })
+      .catch((err: Error) => {
+        this.log.error("bootstrap_failed", { message: err.message });
+        this.failures.recordFailure("ingest_failure");
+        throw err;
+      })
       .finally(() => {
         this.bootstrapPromise = null;
       });
@@ -58,7 +75,43 @@ export class MemoryAPI {
   async blastradius(input: BlastRadiusInput): Promise<BlastRadiusResponse> {
     const start = Date.now();
 
-    // 1. Degraded detection: shallow clone
+    // Disabled check first
+    if (this.failures.isDisabled()) {
+      this.log.warn("call_on_disabled", { file: input.file });
+      return buildEnvelope({
+        status: "disabled",
+        signals: [],
+        score: 0,
+        confidence: 0,
+        tazelik: "fresh",
+        indexedThrough: "",
+        indexedTotal: 0,
+        queryMs: Date.now() - start,
+        reason: "tool disabled after repeated failures; clear .composto/failures.json to re-enable",
+      });
+    }
+
+    try {
+      return await this.runQuery(input, start);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.log.error("internal_error", { file: input.file, message });
+      this.failures.recordFailure("internal_error");
+      return buildEnvelope({
+        status: "internal_error",
+        signals: [],
+        score: 0,
+        confidence: 0,
+        tazelik: "fresh",
+        indexedThrough: "",
+        indexedTotal: 0,
+        queryMs: Date.now() - start,
+        reason: `internal error: ${message}; see .composto/index.log`,
+      });
+    }
+  }
+
+  private async runQuery(input: BlastRadiusInput, start: number): Promise<BlastRadiusResponse> {
     if (isShallowRepo(this.repoPath)) {
       return buildEnvelope({
         status: "shallow_clone",
@@ -69,11 +122,10 @@ export class MemoryAPI {
         indexedThrough: "",
         indexedTotal: 0,
         queryMs: Date.now() - start,
-        reason: "shallow clone detected; run `composto index --deepen`",
+        reason: "shallow clone detected; run `git fetch --unshallow` or `composto index --deepen`",
       });
     }
 
-    // 2. Degraded detection: empty / insufficient
     const totalCommits = countCommits(this.repoPath);
     if (totalCommits < EMPTY_REPO_THRESHOLD) {
       return buildEnvelope({
@@ -89,18 +141,26 @@ export class MemoryAPI {
       });
     }
 
-    // 3. Freshness + deferred delta ingest
     const fresh = ensureFresh(this.db, this.repoPath);
     let status: DegradedStatus = "ok";
-    const partial = false;
+
+    if (fresh.rewritten) {
+      status = "reindexing";
+      this.log.warn("history_rewritten", { last_indexed: fresh.head });
+    }
 
     if (fresh.tazelik === "bootstrapping") {
       await this.bootstrapIfNeeded();
     } else if (fresh.tazelik === "catching_up" && fresh.delta) {
-      // Fire-and-forget: main call answers from current index, delta in background.
       this.pool
         .runIngest({ dbPath: this.dbPath, repoPath: this.repoPath, range: fresh.delta })
-        .catch(() => { /* Plan 3 adds logging */ });
+        .catch((err: Error) => {
+          this.log.error("delta_ingest_failed", { message: err.message });
+        });
+    }
+
+    if (status === "ok" && detectSquashed(this.db)) {
+      status = "squashed_history";
     }
 
     const indexedTotalRow = this.db
@@ -111,16 +171,15 @@ export class MemoryAPI {
       .prepare("SELECT value FROM index_state WHERE key='last_indexed_sha'")
       .get() as { value: string } | undefined)?.value ?? "";
 
-    // 4. Signals + math
     const signals = collectSignals(this.db, this.repoPath, input.file);
     const tazelik: Tazelik = fresh.tazelik === "bootstrapping" ? "fresh" : fresh.tazelik;
     const { score, confidence } = computeScoreAndConfidence(signals, {
       tazelik,
-      partial,
+      partial: false,
       totalCommits: indexedTotal,
     });
 
-    return buildEnvelope({
+    const response = buildEnvelope({
       status,
       signals,
       score,
@@ -130,9 +189,21 @@ export class MemoryAPI {
       indexedTotal,
       queryMs: Date.now() - start,
     });
+
+    this.log.info("query", {
+      file: input.file,
+      status: response.status,
+      verdict: response.verdict,
+      confidence: response.confidence,
+      query_ms: response.metadata.query_ms,
+    });
+    this.failures.recordSuccess();
+    return response;
   }
 
   async close(): Promise<void> {
+    this.log.info("api_close", {});
+    this.log.close();
     this.db.close();
     await this.pool.close();
   }
