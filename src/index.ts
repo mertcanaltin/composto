@@ -1,6 +1,6 @@
 import {
   runScan, runTrends, runIR, runBenchmark, runBenchmarkQuality, runContext,
-  runImpact, runIndex,
+  runImpact, runIndex, runIndexStatus,
 } from "./cli/commands.js";
 import { resolve } from "node:path";
 
@@ -75,7 +75,11 @@ switch (command) {
     break;
   }
   case "index": {
-    await runIndex(resolve("."));
+    if (args.includes("--status")) {
+      await runIndexStatus(resolve("."));
+    } else {
+      await runIndex(resolve("."));
+    }
     break;
   }
   case "version":
@@ -93,6 +97,7 @@ switch (command) {
     console.log("  context [path] --target <symbol>      Target file as raw, surrounding as IR");
     console.log("  impact <file>                         Show historical blast radius for a file");
     console.log("  index                                 Build or refresh the memory index");
+    console.log("  index --status                        Show memory index diagnostics");
     console.log("  version                               Show version");
     break;
 }

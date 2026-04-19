@@ -317,3 +317,33 @@ export async function runIndex(projectPath: string): Promise<void> {
     await api.close();
   }
 }
+
+import { collectStatus } from "../memory/status.js";
+
+export async function runIndexStatus(projectPath: string): Promise<void> {
+  const dbPath = join(projectPath, ".composto", "memory.db");
+  const s = collectStatus(dbPath);
+
+  console.log(`Composto Memory — ${projectPath}\n`);
+  console.log("Index state");
+  console.log(`  Schema version:           ${s.schemaVersion}`);
+  console.log(`  Bootstrapped:             ${s.bootstrapped ? "yes" : "no"}`);
+  console.log(`  Indexed through:          ${s.indexedCommitsThrough || "(none)"}`);
+  console.log(`  Indexed commits total:    ${s.indexedCommitsTotal}`);
+  console.log(`  Files w/ deep index:      ${s.filesWithDeepIndex}`);
+  console.log();
+  console.log("Calibration");
+  if (s.calibrationLastRefreshedAt) {
+    const dt = new Date(s.calibrationLastRefreshedAt * 1000).toISOString();
+    console.log(`  Last refreshed:           ${dt}`);
+  } else {
+    console.log(`  Last refreshed:           (never)`);
+  }
+  console.log(`  Rows populated:           ${s.calibrationRows} / 5`);
+  console.log();
+  console.log("Storage");
+  console.log(`  DB + WAL + SHM:           ${(s.storageBytes / 1024).toFixed(1)} KB`);
+  console.log();
+  console.log("Health");
+  console.log(`  Integrity check:          ${s.integrityOk ? "OK" : "FAIL"}`);
+}
