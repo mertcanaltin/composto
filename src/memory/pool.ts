@@ -19,7 +19,7 @@ interface PendingJob {
 
 function resolveWorkerPath(): string {
   const here = dirname(fileURLToPath(import.meta.url));
-  // In dev (tsx) here is src/memory; in dist here is dist (flattened).
+  // In dev (tsx) here is src/memory; in dist here is dist/memory (no splitting).
   // worker.ts lives alongside pool.ts after tsup output.
   return join(here, "worker.js");
 }

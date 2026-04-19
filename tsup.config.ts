@@ -2,8 +2,9 @@ import { defineConfig } from "tsup";
 import { cpSync, mkdirSync, readdirSync } from "node:fs";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/mcp/server.ts", "src/memory/worker.ts", "src/memory/pool.ts"],
+  entry: ["src/index.ts", "src/mcp/server.ts", "src/memory/worker.ts", "src/memory/pool.ts", "src/memory/api.ts"],
   format: ["esm"],
+  splitting: false,
   dts: false,
   clean: true,
   target: "node22",
