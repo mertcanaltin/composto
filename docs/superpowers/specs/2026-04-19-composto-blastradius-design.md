@@ -720,7 +720,11 @@ See `docs/superpowers/plans/2026-04-19-blastradius-plan-3-degraded-modes-logging
 
 **Plan 1 → Plan 3 debt cleared:** items (2) path resolution brittleness and (3) worker error typing both resolved. Only item (4) (Plan 1's file-count deviations, historical) remains.
 
-### Plans 4–5 (pending)
+### Plan 5 v1 — Ship-gate proof on one repo (complete on branch `feature/blastradius-plan-5`)
 
-- **Plan 4** — Tier 2 AST ingest (`diff` parameter): per-file `symbol_touches` populated on demand when a blastradius call supplies a unified diff.
-- **Plan 5** — Calibration backtest on three OSS repos + `docs/blastradius-proof.md` + ship-gate validation of precision > 60%, recall > 40% on `medium|high` band.
+See `docs/blastradius-proof.md` and `scripts/blastradius-backtest.ts`. Post-hoc confusion matrix against fix_links ground truth on the composto repo: precision **93.9%**, recall **100%** on the `medium|high` band. Ship gate (precision > 60%, recall > 40%) passes for this single repo. Honest caveats documented in the proof doc: partial signal/ground-truth correlation (revert_match reads fix_links), recall scoped to current working tree (deleted files excluded), no time-travel queries yet. Gives the product a first numerical pass.
+
+### Plans 4 + 5b (pending)
+
+- **Plan 4** — Tier 2 AST ingest (`diff` parameter): per-file `symbol_touches` populated on demand when a blastradius call supplies a unified diff. Deferred pending need for symbol-granularity blast radius.
+- **Plan 5b** — Stricter backtest: time-travel queries (rewind DB to pre-fix HEAD for each evaluation), signal-attributed precision/recall (exclude revert_match to confirm non-circular signals carry weight), three public repos (composto + vitest + one more) per spec §9.3 wording.

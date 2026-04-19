@@ -6,21 +6,29 @@ Composto is mid-pivot from "AST-based token compressor" to **causal oracle / tem
 
 Concretely this means: when scoping new work here, prefer features that feed the causal graph or expose causal primitives over features that only improve compression ratios.
 
-## Current state (as of 2026-04-19)
+## Current state (as of 2026-04-19 — Plans 1, 2, 3 + 5 v1 all landed on master)
 
-- **Plan 1 (Foundation) landed on master.** Introduces `src/memory/` subsystem (SQLite causal graph, worker pool, Tier 1 ingest, freshness check), `revert_match` signal end-to-end, confidence + verdict math, envelope builder, new MCP tool `composto_blastradius` (feature-flagged via `COMPOSTO_BLASTRADIUS=1`), new CLI commands `composto impact <file>` and `composto index`. Full test suite 196/196.
-- **Live canonical documents:**
-  - Design spec: `docs/superpowers/specs/2026-04-19-composto-blastradius-design.md` (includes an "Implementation Status" section with technical debt carried into later plans)
-  - Executed plan: `docs/superpowers/plans/2026-04-19-blastradius-plan-1-foundation.md`
-- **Plans 2–5 pending.** Plan 2: real implementations of the 4 stub signals + repo-calibrated precision. Plan 3: full degraded-mode catalogue + logging + path-resolution cleanup. Plan 4: Tier 2 AST ingest (`diff` parameter). Plan 5: calibration backtest + ship gate.
+- **Plan 1 (Foundation)** — `src/memory/` subsystem, Tier 1 ingest, `revert_match` signal, confidence + verdict math, envelope builder, `composto_blastradius` MCP tool (`COMPOSTO_BLASTRADIUS=1`), `composto impact` + `composto index` CLI.
+- **Plan 2 (Signals + Calibration)** — real implementations of the 4 other signals (hotspot, fix_ratio, coverage_decline, author_churn), `signal_calibration` self-validation wired into tier1 ingest, envelope auto-flips to `repo-calibrated`, `coverage_factor` back to spec-strict AND.
+- **Plan 3 (Degraded Modes + Logging + Diagnostic CLI)** — full degraded-mode catalogue (shallow_clone, squashed_history, reindexing, disabled three-strike, internal_error), NDJSON logger at `.composto/index.log`, `composto index --status`, embedded migration SQL, worker error typing cleaned up.
+- **Plan 5 v1 (Ship-gate proof)** — `scripts/blastradius-backtest.ts` + `docs/blastradius-proof.md`; single-repo confusion matrix on composto: precision **93.9%**, recall **100%** on medium|high band. Ship gate passes with honest caveats.
+- **Current test suite:** 221 tests across 49 files; all green.
+- **Still pending:** Plan 4 (Tier 2 AST ingest / `diff` parameter), Plan 5b (three-repo time-travel backtest).
 
-## Known technical debt from Plan 1
+### Live canonical documents
 
-Load-bearing stuff later plans should clean up:
+- Design spec: `docs/superpowers/specs/2026-04-19-composto-blastradius-design.md` — includes an "Implementation Status" section kept fresh at the end of each plan.
+- Plan documents: `docs/superpowers/plans/2026-04-19-blastradius-plan-{1,2,3}-*.md`.
+- Proof: `docs/blastradius-proof.md`.
 
-1. `src/memory/confidence.ts` `coverage_factor` uses `strength > 0` only; spec §6.3/§7.3 specify `AND sample_size >= 20`. Plan 2 reverts to spec-strict once real signals land.
-2. Path resolution for migrations + worker.js is held together by `splitting: false` (tsup) + `resolveWorkerPath()` bundled-mode detection in `src/memory/pool.ts` + migration SQL duplicated across `dist/migrations/` and `dist/memory/migrations/`. Plan 3 should replace this with a single strategy (embed SQL as strings, or resolve from package root).
-3. `src/memory/pool.ts` `worker.on("error", err => job.reject(err))` has `err: unknown` vs `reject(Error)` type mismatch. Plan 3 error-handling pass cleans it up.
+## Known technical debt
+
+Historical from Plan 1 — most cleared:
+
+1. ~~`coverage_factor` strength-only hack~~ — **cleared in Plan 2.**
+2. ~~Path resolution triple-workaround~~ — **partially cleared in Plan 3** (migration SQL embedded; tsup no longer duplicates). The two-branch `resolveWorkerPath()` bundled-mode detection in `src/memory/pool.ts` remains because removing it breaks the `dist/index.js` → worker path resolution with tsup's `splitting: false` + multi-entry config.
+3. ~~Worker `err: unknown` → `reject(Error)`~~ — **cleared in Plan 3.**
+4. Plan 1 file-count deviations (fixture touch count, etc.) — historical, non-blocking.
 
 ## Working style for this project
 
@@ -31,13 +39,16 @@ Product/org-level decisions (tool names post-ship, release timing, remote pushes
 ## Useful commands
 
 ```bash
-pnpm test            # 196 tests
+pnpm test            # 221 tests
 pnpm build           # ESM bundles to dist/
 pnpm rebuild better-sqlite3   # if native bindings missing after clone/install
 
 composto index                             # bootstrap .composto/memory.db
+composto index --status                    # diagnostic: schema, freshness, calibration, storage
 composto impact src/some/file.ts           # blastradius for a file
 COMPOSTO_BLASTRADIUS=1 claude              # enable the MCP tool for a Claude Code session
+
+pnpm exec tsx scripts/blastradius-backtest.ts .   # ship-gate proof harness
 ```
 
 The `.composto/` directory is gitignored; regenerate with `composto index` on any machine.
