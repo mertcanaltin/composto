@@ -7,6 +7,7 @@ import type { IngestRange } from "../types.js";
 import { logRange } from "../git.js";
 import { parseCommit } from "../commit-parser.js";
 import { deriveFixLinks } from "./fix-links.js";
+import { refreshCalibration, shouldRefresh } from "../calibration.js";
 
 const RECORD_SEP = "\x1e";
 const FIELD_SEP = "\x00";
@@ -128,6 +129,10 @@ export function ingestRange(db: DB, repoPath: string, range: IngestRange): numbe
   }
 
   deriveFixLinks(db);
+
+  if (shouldRefresh(db, range.to)) {
+    refreshCalibration(db, range.to);
+  }
 
   upsertState.run("last_indexed_sha", range.to);
   const totalRow = db.prepare("SELECT COUNT(*) AS n FROM commits").get() as { n: number };
