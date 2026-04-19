@@ -41,10 +41,15 @@ commit "feat: token validator" "2026-01-05T10:00:00Z"
 echo "export function validate(t: string) {}" > token.ts
 commit "fix: validate takes token" "2026-01-06T10:00:00Z"
 
-for i in $(seq 7 16); do
+for i in $(seq 7 15); do
   echo "// noop $i" >> notes.md
   commit "docs: note $i" "2026-01-${i}T10:00:00Z"
 done
+
+# One commit that touches multiple files
+echo "// config update" >> config.json
+echo "// deps update" >> package.json
+commit "feat: update config and deps" "2026-01-16T10:00:00Z"
 
 # One more feature
 echo "export function refresh() {}" > session.ts
