@@ -692,3 +692,25 @@ The wedge is considered successful if, within one release cycle after ship:
 - No silent wrong answers reported in logs; every non-`ok` response carries a `status` + `reason`.
 
 Absent these, the wedge is not the right shape and the direction is revisited before adding follow-on primitives.
+
+---
+
+## Implementation Status
+
+### Plan 1 — Foundation (complete on branch `feature/blastradius-plan-1`)
+
+See `docs/superpowers/plans/2026-04-19-blastradius-plan-1-foundation.md`. Ships: memory subsystem skeleton, Tier 1 ingest (commits + file_touches + fix_links), worker-thread pool, freshness check, `revert_match` signal end-to-end, confidence + verdict math, envelope builder, `MemoryAPI`, `composto_blastradius` MCP tool (feature-flagged via `COMPOSTO_BLASTRADIUS=1`), `composto impact` + `composto index` CLI, end-to-end smoke test. Other four signals return `strength: 0`. Full memory test suite green (196/196 as of Task 17).
+
+### Technical debt carried from Plan 1 into follow-on plans
+
+1. **Coverage factor semantics (Plan 2).** `confidence.ts` uses `strength > 0` only for `coverage_factor`, diverging from spec §6.3 / §7.3 which specify `strength > 0 AND sample_size >= 20`. Plan 1's test expectations and Plan 1's stubs (sample_size=0) together make the spec-strict AND version trivially zero, killing confidence. Plan 2 (real signals with real sample sizes) should revert to spec-strict once signals are backed by meaningful sample counts and update the Plan 1 test expectations accordingly.
+2. **Pool / schema path resolution brittleness (Plan 3 cleanup).** When `src/memory/api.ts` is imported from the CLI entry (`src/index.ts`), tsup bundles it into `dist/index.js`; at runtime `import.meta.url` resolves to `dist/index.js` instead of `dist/memory/api.js`. Plan 1 works around this with (a) `splitting: false` in tsup config, (b) `resolveWorkerPath()` in `pool.ts` that detects whether it's in `dist/memory/` or `dist/` and re-roots the lookup, (c) duplicated migration SQL in both `dist/migrations/` and `dist/memory/migrations/`. Plan 3 should replace this with a single robust resolution strategy — either embedding migration SQL as string constants, or resolving the package root via `package.json` lookup, or using an explicit runtime config env var.
+3. **Worker error type (Plan 3).** `src/memory/pool.ts` `worker.on("error", (err) => ...)` where `err` is `unknown` but `job.reject(err)` expects `Error`. Flagged by Task 7 code review; deferred to Plan 3's error-handling pass.
+4. **Plan 1 file-count deviations from plan-text.** Task 5 (fixture touch-count), Task 7 (pool as tsup entry), Task 11 (coverage formula), Task 14 (splitting:false + pool pool.ts comment), Task 16 (pool.ts bundled-mode + dual migrations copy). All approved during subagent-driven review loops; none change Plan 1's external contract. They represent real integration issues that surfaced during implementation.
+
+### Plan 2–5 (pending)
+
+- **Plan 2** — Remaining four signals (`hotspot`, `fix_ratio`, `coverage_decline`, `author_churn`) + repo-calibrated `signal_calibration` with self-validation + revert-strict `coverage_factor`.
+- **Plan 3** — Full degraded-mode catalogue (shallow_clone, squashed_history, reindexing, disabled three-strike, internal_error), NDJSON logging to `.composto/index.log`, `composto index --status|--deepen|--rebuild`, performance-budget CI gate, path-resolution cleanup.
+- **Plan 4** — Tier 2 AST ingest (`diff` parameter): per-file `symbol_touches` populated on demand when a blastradius call supplies a unified diff.
+- **Plan 5** — Calibration backtest on three OSS repos + `docs/blastradius-proof.md` + ship-gate validation of precision > 60%, recall > 40% on `medium|high` band.
