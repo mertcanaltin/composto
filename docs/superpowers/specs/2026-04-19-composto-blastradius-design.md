@@ -661,13 +661,26 @@ Measured with `vitest` bench and `process.hrtime`. CI fails on budget regression
 
 ## 11. Open questions
 
-None blocking. The following are deliberate v1-scope exclusions documented elsewhere in this spec:
+None blocking implementation. The following are deliberate v1-scope exclusions documented elsewhere in this spec:
 
 - Multi-branch indexing (v1.1)
 - CI / test-run integration (v2)
 - GitHub PR metadata (v2)
 - Incident ingestion (v2+)
 - Bridge from `blastradius` to `composto_context` packing (v1.1)
+
+### 11.1 Working assumptions (product decisions not yet vetted with humans)
+
+These are choices the spec currently **assumes** but that genuinely belong to the product owner rather than the engineer. They are listed here so they can be changed cheaply before or during implementation rather than after ship.
+
+1. **Tool name: `composto_blastradius`.** Alternatives considered: `composto_impact` (shorter, matches CLI verb), `composto_risk` (more generic). `blastradius` chosen for descriptive precision. *Cost to change after ship: MCP consumers break; rename is costly.*
+2. **Ship gate numbers: precision > 60%, recall > 40% on `medium|high` band.** Chosen as a plausible first bar — not derived from prior measurement. Product owner may prefer a different trade-off (e.g., higher precision with lower recall if the goal is "never cry wolf").
+3. **Backtest target repos: composto itself, vitest, one more moderate-scale OSS project.** Chosen for scale and accessibility. Maintainer relationships and publication sensitivity not verified.
+4. **Release packaging: ship in `composto-ai` 0.4.0 behind `COMPOSTO_BLASTRADIUS=1` flag; remove flag at 0.4.1 after ship gate is met in the wild.** Release cadence, breaking-change timing, and flag removal criteria are product-owner decisions.
+5. **Follow-on primitive sequencing: `witness` → `ownership` → `invariants`.** This ordering is an engineer's intuition, not a strategy call. If the product owner is closer to enterprise conversations, `ownership` may warrant priority.
+6. **Scope of engineering time: ~2–3 weeks.** Based on code-size estimate for `src/memory/` + tests + backtest. Real calendar depends on the owner's parallel commitments and is not negotiated here.
+
+Implementation proceeds on these defaults. Each will surface as a checkpoint in the implementation plan; revisiting any one is inexpensive up until the code lands in a published release.
 
 ## 12. Success criteria
 
