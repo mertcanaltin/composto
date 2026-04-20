@@ -46,12 +46,33 @@ composto index --status
 
 ### MCP plugin (Claude Code, Cursor, Claude Desktop)
 
-The MCP server is bundled inside `composto-ai`. Install the package globally first, then register the server:
+The MCP server is bundled inside `composto-ai`. Install the package globally first, then register the server with your client:
 
 ```bash
 npm install -g composto-ai
+```
+
+**Claude Code:**
+
+```bash
 claude mcp add composto -- composto-mcp
 ```
+
+**Cursor** — add to `~/.cursor/mcp.json` (or project-local `.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "composto": {
+      "command": "composto-mcp"
+    }
+  }
+}
+```
+
+Then restart Cursor and verify under Settings → MCP that `composto` is green.
+
+**Claude Desktop** — add the same block to `~/Library/Application Support/Claude/claude_desktop_config.json`.
 
 Composto adds 5 tools to your AI assistant: `composto_ir`, `composto_benchmark`, `composto_context`, `composto_scan`, and `composto_blastradius` (the last one gated by `COMPOSTO_BLASTRADIUS=1` during beta).
 
