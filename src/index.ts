@@ -2,6 +2,7 @@ import {
   runScan, runTrends, runIR, runBenchmark, runBenchmarkQuality, runContext,
   runImpact, runIndex, runIndexStatus,
 } from "./cli/commands.js";
+import { runInit, type InitClient } from "./cli/init.js";
 import { resolve } from "node:path";
 
 const args = process.argv.slice(2);
@@ -82,6 +83,20 @@ switch (command) {
     }
     break;
   }
+  case "init": {
+    const clientArg = args.find((a) => a.startsWith("--client="))?.slice("--client=".length);
+    if (clientArg && clientArg !== "cursor") {
+      console.error(`Unknown --client=${clientArg}. Valid: cursor`);
+      process.exit(1);
+    }
+    const result = runInit(resolve("."), { client: clientArg as InitClient | undefined });
+    console.log(`composto init — configured for ${result.client}\n`);
+    for (const f of result.written) console.log(`  wrote   ${f}`);
+    for (const f of result.merged) console.log(`  merged  ${f}`);
+    for (const f of result.skipped) console.log(`  skipped ${f} (already exists)`);
+    console.log("\nRestart Cursor and check Settings → MCP that 'composto' is green.");
+    break;
+  }
   case "version":
     console.log("composto v0.4.1");
     break;
@@ -98,6 +113,7 @@ switch (command) {
     console.log("  impact <file>                         Show historical blast radius for a file");
     console.log("  index                                 Build or refresh the memory index");
     console.log("  index --status                        Show memory index diagnostics");
+    console.log("  init [--client=cursor]                Configure Composto MCP for an AI client");
     console.log("  version                               Show version");
     break;
 }

@@ -76,6 +76,19 @@ Then restart Cursor and verify under Settings → MCP that `composto` is green.
 
 Composto adds 5 tools to your AI assistant: `composto_ir`, `composto_benchmark`, `composto_context`, `composto_scan`, and `composto_blastradius` (the last one gated by `COMPOSTO_BLASTRADIUS=1` during beta).
 
+#### Cursor: one-command setup
+
+Registering the MCP server only *exposes* the tools — Cursor's agent often defaults to its built-in `read_file` / `codebase_search`. To configure both the MCP server **and** a project rule that tells the agent when to call Composto, run:
+
+```bash
+cd your-project
+composto init
+```
+
+This writes `.cursor/mcp.json` (project-local MCP registration) and `.cursor/rules/composto.mdc` (an `alwaysApply: true` rule that gets injected into every conversation). Existing files are merged, never overwritten. Restart Cursor and check Settings → MCP that `composto` is green.
+
+Without the rule, hit rate is ~30-50%; with it, ~85-95%. The rule template is embedded in [`src/cli/init.ts`](src/cli/init.ts) (`CURSOR_RULES_MDC`) — open the generated `.cursor/rules/composto.mdc` to customize per-project.
+
 ---
 
 ## How It Works
