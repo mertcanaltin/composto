@@ -40,6 +40,19 @@ export function countCommits(cwd: string): number {
   return parseInt(out, 10);
 }
 
+// resolveSinceBoundary maps a YYYY-MM-DD date string to the SHA of the
+// latest commit at or before that date. Returned SHA is meant to be used
+// as the `from` boundary of an IngestRange so the indexer walks only
+// commits AFTER that point. Returns null if no commit exists before the
+// date (the date is older than the repo's first commit).
+export function resolveSinceBoundary(cwd: string, since: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+    throw new Error(`--since must be YYYY-MM-DD (got "${since}")`);
+  }
+  const out = run(cwd, `git rev-list -n 1 --before='${since}T23:59:59' HEAD`);
+  return out || null;
+}
+
 // logRange returns raw NUL-delimited git log output for parsing
 // in Task 5 (Tier 1 ingest). The format captures everything
 // tier1 needs: SHA, parent, author, timestamp, subject, body, numstat.

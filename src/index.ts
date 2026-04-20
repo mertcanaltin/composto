@@ -79,7 +79,8 @@ switch (command) {
     if (args.includes("--status")) {
       await runIndexStatus(resolve("."));
     } else {
-      await runIndex(resolve("."));
+      const sinceArg = args.find((a) => a.startsWith("--since="))?.slice("--since=".length);
+      await runIndex(resolve("."), { since: sinceArg });
     }
     break;
   }
@@ -98,10 +99,10 @@ switch (command) {
     break;
   }
   case "version":
-    console.log("composto v0.4.1");
+    console.log("composto v0.4.2");
     break;
   default:
-    console.log("composto v0.4.1 — less tokens, more insight\n");
+    console.log("composto v0.4.2 — less tokens, more insight\n");
     console.log("Commands:");
     console.log("  scan [path]                           Scan codebase for issues");
     console.log("  trends [path]                         Analyze codebase health trends");
@@ -111,7 +112,7 @@ switch (command) {
     console.log("  context [path] --budget N             Smart context within token budget");
     console.log("  context [path] --target <symbol>      Target file as raw, surrounding as IR");
     console.log("  impact <file>                         Show historical blast radius for a file");
-    console.log("  index                                 Build or refresh the memory index");
+    console.log("  index [--since=YYYY-MM-DD]            Build or refresh the memory index (--since bounds work for huge repos)");
     console.log("  index --status                        Show memory index diagnostics");
     console.log("  init [--client=cursor]                Configure Composto MCP for an AI client");
     console.log("  version                               Show version");

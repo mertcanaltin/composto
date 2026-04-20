@@ -8,7 +8,7 @@ import { collectSignals } from "./signals/index.js";
 import { computeScoreAndConfidence } from "./confidence.js";
 import { buildEnvelope } from "./envelope.js";
 import { WorkerPool } from "./pool.js";
-import { countCommits, isShallowRepo } from "./git.js";
+import { countCommits, isShallowRepo, revParseHead } from "./git.js";
 import { detectSquashed } from "./detectors.js";
 import { createFailureTracker, type FailureTracker } from "./failure-tracker.js";
 import { createLogger, type Logger } from "./log.js";
@@ -60,6 +60,30 @@ export class MemoryAPI {
       .runIngest({ dbPath: this.dbPath, repoPath: this.repoPath, range: fresh.delta })
       .then(() => {
         this.log.info("bootstrap_done", { through: fresh.delta?.to });
+      })
+      .catch((err: Error) => {
+        this.log.error("bootstrap_failed", { message: err.message });
+        this.failures.recordFailure("ingest_failure");
+        throw err;
+      })
+      .finally(() => {
+        this.bootstrapPromise = null;
+      });
+    return this.bootstrapPromise;
+  }
+
+  // bootstrapFromBoundary indexes only commits between fromSha and HEAD.
+  // Used by `composto index --since=YYYY-MM-DD` to bound work on huge repos.
+  // Pass fromSha=null to index the full history (same as bootstrapIfNeeded).
+  async bootstrapFromBoundary(fromSha: string | null): Promise<void> {
+    if (this.bootstrapPromise) return this.bootstrapPromise;
+    const head = revParseHead(this.repoPath);
+    const range = { from: fromSha, to: head };
+
+    this.bootstrapPromise = this.pool
+      .runIngest({ dbPath: this.dbPath, repoPath: this.repoPath, range })
+      .then(() => {
+        this.log.info("bootstrap_done", { through: range.to, from: range.from });
       })
       .catch((err: Error) => {
         this.log.error("bootstrap_failed", { message: err.message });

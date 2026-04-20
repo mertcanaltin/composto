@@ -14,7 +14,7 @@ describe("memory schema migrations", () => {
     runMigrations(db);
 
     const userVersion = db.pragma("user_version", { simple: true }) as number;
-    expect(userVersion).toBe(1);
+    expect(userVersion).toBe(2);
 
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -38,14 +38,36 @@ describe("memory schema migrations", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("is idempotent: running migrations twice leaves version at 1", () => {
+  it("is idempotent: running migrations twice leaves version at CURRENT_VERSION", () => {
     const dir = mkdtempSync(join(tmpdir(), "composto-memory-"));
     const dbPath = join(dir, "memory.db");
 
     const db = openDatabase(dbPath);
     runMigrations(db);
     runMigrations(db);
-    expect(db.pragma("user_version", { simple: true })).toBe(1);
+    expect(db.pragma("user_version", { simple: true })).toBe(2);
+
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("upgrades a v1 database to v2 (adds idx_ft_file_commit)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "composto-memory-"));
+    const dbPath = join(dir, "memory.db");
+
+    // Simulate an existing v1 DB by setting user_version manually after the
+    // fresh creation, then re-running migrations to confirm v2 picks up.
+    const db = openDatabase(dbPath);
+    runMigrations(db);
+    db.pragma("user_version = 1");
+    db.exec("DROP INDEX IF EXISTS idx_ft_file_commit");
+    runMigrations(db);
+
+    expect(db.pragma("user_version", { simple: true })).toBe(2);
+    const indices = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_ft_file_commit'")
+      .all();
+    expect(indices.length).toBe(1);
 
     db.close();
     rmSync(dir, { recursive: true, force: true });

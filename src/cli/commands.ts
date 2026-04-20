@@ -22,7 +22,7 @@ export function runScan(projectPath: string): void {
   const adapter = new CLIAdapter();
   const config = loadConfig(projectPath);
 
-  console.log("composto v0.4.1 — scanning...\n");
+  console.log("composto v0.4.2 — scanning...\n");
 
   const files = collectFiles(projectPath, [".ts", ".tsx", ".js", ".jsx"]);
   console.log(`  Found ${files.length} files\n`);
@@ -51,7 +51,7 @@ export function runTrends(projectPath: string): void {
   const adapter = new CLIAdapter();
   const config = loadConfig(projectPath);
 
-  console.log("composto v0.4.1 — trend analysis...\n");
+  console.log("composto v0.4.2 — trend analysis...\n");
 
   const entries = getGitLog(projectPath, 100);
   if (entries.length === 0) {
@@ -102,7 +102,7 @@ export async function runIR(projectPath: string, filePath: string, layer: string
 const ALL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs"];
 
 export async function runBenchmark(projectPath: string): Promise<void> {
-  console.log("composto v0.4.1 — benchmark\n");
+  console.log("composto v0.4.2 — benchmark\n");
 
   const files = collectFiles(projectPath, ALL_EXTENSIONS);
   console.log(`  ${files.length} files\n`);
@@ -159,7 +159,7 @@ export async function runBenchmarkQuality(projectPath: string, filePath: string)
   const code = readFileSync(filePath, "utf-8");
   const relPath = relative(projectPath, filePath);
 
-  console.log("composto v0.4.1 — quality benchmark\n");
+  console.log("composto v0.4.2 — quality benchmark\n");
   console.log(`  File: ${relPath}\n`);
   console.log("  Sending to Claude Haiku...\n");
 
@@ -190,8 +190,8 @@ export async function runBenchmarkQuality(projectPath: string, filePath: string)
 
 export async function runContext(projectPath: string, budget: number, target?: string): Promise<void> {
   const header = target
-    ? `composto v0.4.1 — context (target: ${target}, budget: ${budget} tokens)\n`
-    : `composto v0.4.1 — context (budget: ${budget} tokens)\n`;
+    ? `composto v0.4.2 — context (target: ${target}, budget: ${budget} tokens)\n`
+    : `composto v0.4.2 — context (budget: ${budget} tokens)\n`;
   console.log(header);
 
   const files = collectFiles(projectPath, ALL_EXTENSIONS);
@@ -305,17 +305,73 @@ export async function runImpact(
   }
 }
 
-export async function runIndex(projectPath: string): Promise<void> {
+export interface IndexOptions {
+  since?: string;
+}
+
+export async function runIndex(projectPath: string, options: IndexOptions = {}): Promise<void> {
+  const { resolveSinceBoundary } = await import("../memory/git.js");
   const dbPath = join(projectPath, ".composto", "memory.db");
   const api = new MemoryAPI({ dbPath, repoPath: projectPath });
+
+  // Open a separate read-only connection for progress polling. WAL mode lets
+  // this connection see batches the worker has already committed.
+  const Database = (await import("better-sqlite3")).default;
+  const probeDb = new Database(dbPath, { readonly: true, fileMustExist: false });
+
+  const start = Date.now();
+  let stopProgress = () => {};
+
   try {
-    console.log("composto: bootstrapping memory index...");
-    const start = Date.now();
-    await api.bootstrapIfNeeded();
-    console.log(`composto: index ready (${Date.now() - start} ms)`);
+    if (options.since) {
+      const fromSha = resolveSinceBoundary(projectPath, options.since);
+      console.log(`composto: indexing commits since ${options.since}${fromSha ? ` (boundary ${fromSha.slice(0, 8)})` : " (whole history — date predates first commit)"}...`);
+
+      stopProgress = startProgressPoller(probeDb, start);
+      await api.bootstrapFromBoundary(fromSha);
+    } else {
+      console.log("composto: bootstrapping memory index...");
+      stopProgress = startProgressPoller(probeDb, start);
+      await api.bootstrapIfNeeded();
+    }
+
+    stopProgress();
+    const total = readIndexedTotal(probeDb);
+    const elapsed = Date.now() - start;
+    const rate = total > 0 && elapsed > 0 ? Math.round((total * 1000) / elapsed) : 0;
+    console.log(`composto: index ready — ${total.toLocaleString()} commits in ${(elapsed / 1000).toFixed(1)}s (${rate.toLocaleString()} commits/sec)`);
   } finally {
+    stopProgress();
+    probeDb.close();
     await api.close();
   }
+}
+
+function readIndexedTotal(db: import("better-sqlite3").Database): number {
+  try {
+    const row = db
+      .prepare("SELECT value FROM index_state WHERE key = 'indexed_commits_total'")
+      .get() as { value: string } | undefined;
+    return row ? parseInt(row.value, 10) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function startProgressPoller(db: import("better-sqlite3").Database, start: number): () => void {
+  let last = -1;
+  const interval = setInterval(() => {
+    const total = readIndexedTotal(db);
+    if (total === last) return;
+    last = total;
+    const elapsed = Date.now() - start;
+    const rate = total > 0 && elapsed > 0 ? Math.round((total * 1000) / elapsed) : 0;
+    process.stdout.write(`  indexed ${total.toLocaleString()} commits (${rate.toLocaleString()}/sec) [${(elapsed / 1000).toFixed(1)}s]\r`);
+  }, 1500);
+  return () => {
+    clearInterval(interval);
+    process.stdout.write("\n");
+  };
 }
 
 import { collectStatus } from "../memory/status.js";

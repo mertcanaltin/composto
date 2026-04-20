@@ -4,7 +4,14 @@
 
 import type { DB } from "./db.js";
 
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
+
+// v2: covering index for the join in deriveFixLinks short_followup_fix
+// (file_touches.file_path → commit_sha). Without this, derivation on
+// large repos (10K+ commits) takes 10+ seconds; with it, ~1-2 seconds.
+const V2_SQL = `
+CREATE INDEX IF NOT EXISTS idx_ft_file_commit ON file_touches(file_path, commit_sha);
+`;
 
 const V1_SQL = `
 CREATE TABLE IF NOT EXISTS index_state (
@@ -95,7 +102,8 @@ export function runMigrations(db: DB): void {
 
   db.exec("BEGIN");
   try {
-    db.exec(V1_SQL);
+    if (current < 1) db.exec(V1_SQL);
+    if (current < 2) db.exec(V2_SQL);
     db.pragma(`user_version = ${CURRENT_VERSION}`);
     db.exec("COMMIT");
   } catch (err) {
