@@ -1,14 +1,14 @@
-# BlastRadius — Quality Proof (v1)
+# BlastRadius — Quality Proof (v1 · v0.4.1)
 
-**Date:** 2026-04-19 (updated 2026-04-20 with picomatch + zod observations)
-**Scope:** Two repos (composto + picomatch), post-ingest ground-truth confusion matrix against the `medium|high` verdict band. One additional repo (zod) surfaced a bootstrap bug tracked for v0.4.1.
+**Date:** 2026-04-19 (updated 2026-04-20 with picomatch + zod runs under v0.4.1)
+**Scope:** Three public repos (composto, picomatch, zod) — all clear the ship gate. Post-ingest ground-truth confusion matrix against the `medium|high` verdict band.
 **Harness:** `scripts/blastradius-backtest.ts`
 
 ---
 
 ## Ship gate
 
-Spec §9.3 defines the ship gate as **precision > 60% and recall > 40%** on the `medium|high` verdict band across at least three public repos. v1 covers two repos (both pass); a third (zod) is blocked on a FK constraint bug fixed in v0.4.1.
+Spec §9.3 defines the ship gate as **precision > 60% and recall > 40%** on the `medium|high` verdict band across at least three public repos. As of v0.4.1 all three target repos pass.
 
 ## Results on the composto repository
 
@@ -70,9 +70,34 @@ Run: `pnpm exec tsx scripts/blastradius-backtest.ts /path/to/picomatch`
 
 Important caveat: picomatch is small (62 source files) with dense fix history (80 files touched by fix_links historically, 28 of them deleted). Blastradius flagged **all 62 live files as medium+**. That means precision is meaningful (90.3% of the files it flagged actually have fix_link history) but **recall is weak signal** (there are no true negatives to measure against). Takeaway: in small repos with long fix history, treat the verdict as "this file has been touched during a fix window at some point" rather than a differentiator between safe and risky files.
 
-## Attempted: zod
+## Results on zod (post v0.4.1 fix)
 
-Cloning zod with full history and running the backtest surfaced a FOREIGN KEY constraint failure during Tier 1 ingest. Root cause: `commits.reverts_sha` declares `FOREIGN KEY REFERENCES commits(sha)`, and zod's history contains at least one revert commit whose `reverts_sha` points at a SHA that never appears in its own commits table (likely a truncated or mistyped SHA in the commit message). The chronological sort added in Plan 1 helps with ordering but does not protect against dangling references. Tracked for v0.4.1: either validate `reverts_sha` against `commits` before inserting (downgrade to `NULL` on miss) or drop the FK constraint on that column.
+v0.4.0 crashed on this repo with a FOREIGN KEY constraint failure during Tier 1 ingest — `commits.reverts_sha` pointed at SHAs not in the indexed commits table (truncated short SHAs, rebased branches, mistyped messages). v0.4.1's `resolveRevertsSha` now normalizes short SHAs to full ones via prefix match and drops dangling references to `NULL`; FK enforcement is also disabled during the batch insert to tolerate same-timestamp ordering ambiguity. With that fix in place:
+
+```json
+{
+  "repo": "zod",
+  "total_files": 394,
+  "scanned": 394,
+  "ground_truth_files": 1322,
+  "verdicts": { "high": 343, "medium": 33, "low": 5, "unknown": 13 },
+  "confusion_matrix_medium_high_band": { "tp": 361, "fp": 15, "fn": 3, "tn": 15 },
+  "precision": 0.960,
+  "recall": 0.992
+}
+```
+
+**Ship gate status: PASSED** — precision 96.0%, recall 99.2%. zod is the largest of the three repos (394 files, 1322 historical paths in fix_links). Unlike picomatch, it has enough size that true negatives exist (15 `low` plus 13 `unknown` rejections); the verdict distribution is meaningfully spread (343 high, 33 medium, 5 low, 13 unknown) rather than collapsed.
+
+## Summary
+
+| Repo | Files | Ground truth | Medium+ | Precision | Recall |
+|---|---|---|---|---|---|
+| composto | 128 | 74 | 49 | 93.9% | 100% |
+| picomatch | 62 | 80 | 62 | 90.3% | 100% |
+| zod | 394 | 1322 | 376 | 96.0% | 99.2% |
+
+Three repos, three passes. The spec §9.3 ship-gate (precision > 60%, recall > 40% on `medium|high`) now has its three-repo floor met.
 
 ## Caveats on the v1 number
 
@@ -106,4 +131,4 @@ Expected wall-clock: under 30 seconds on a ~100-file, ~20-commit repo. Memory fo
 
 ## Conclusion
 
-The wedge-level claim from §1 of the design spec — "Composto becomes the causal oracle for coding agents" — clears its first numerical bar on two independent codebases. The v1 backtest does not prove the claim at spec strength (only two repos, partial signal independence, no time travel, and picomatch exposed a small-repo over-flagging pattern), but it does show the signals are not noise: precision stays in the 90%+ band on both repos, the tool correctly declines to predict on shallow clones, and the attempted zod run turned up a real bug (FK crash on dangling `reverts_sha`) that v0.4.1 will fix. Plan 5b will tighten this into a three-plus-repo, signal-attributed, time-travel evaluation.
+The wedge-level claim from §1 of the design spec — "Composto becomes the causal oracle for coding agents" — clears the spec §9.3 three-repo floor as of v0.4.1. Precision stays in the 90–96% band across composto, picomatch, and zod; recall holds at 99–100% on files still in the working tree. The v1 backtest still has honest limitations (post-hoc rather than time-travel queries, partial signal independence on `revert_match`, small-repo over-flagging on picomatch), but the bar is no longer a one-repo bar. Plan 5b will tighten this into a signal-attributed, time-travel evaluation.

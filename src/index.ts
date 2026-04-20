@@ -83,10 +83,10 @@ switch (command) {
     break;
   }
   case "version":
-    console.log("composto v0.4.0");
+    console.log("composto v0.4.1");
     break;
   default:
-    console.log("composto v0.4.0 — less tokens, more insight\n");
+    console.log("composto v0.4.1 — less tokens, more insight\n");
     console.log("Commands:");
     console.log("  scan [path]                           Scan codebase for issues");
     console.log("  trends [path]                         Analyze codebase health trends");

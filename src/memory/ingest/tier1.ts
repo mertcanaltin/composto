@@ -81,6 +81,22 @@ function parseLogOutput(output: string): RawCommit[] {
   return commits;
 }
 
+function resolveRevertsSha(raw: string | null, knownShas: Set<string>): string | null {
+  // Revert messages commonly carry truncated SHAs (e.g. "This reverts commit abc1234.").
+  // The captured text may also point at a commit outside the indexed range, or be
+  // wrong altogether (mistyped / rebased branches). Validate against the known SHA
+  // set before handing the value to SQLite so the FK on commits.reverts_sha never
+  // crashes ingest. See docs/blastradius-proof.md "Attempted: zod".
+  if (!raw) return null;
+  if (knownShas.has(raw)) return raw;
+  if (raw.length < 40) {
+    for (const sha of knownShas) {
+      if (sha.startsWith(raw)) return sha;
+    }
+  }
+  return null;
+}
+
 export function ingestRange(db: DB, repoPath: string, range: IngestRange): number {
   const raw = logRange(repoPath, range.from, range.to);
   const commits = parseLogOutput(raw);
@@ -88,6 +104,13 @@ export function ingestRange(db: DB, repoPath: string, range: IngestRange): numbe
   // Sort by timestamp ascending so earlier commits are inserted first,
   // avoiding foreign key constraint violations when a newer commit reverts an older one.
   commits.sort((a, b) => a.timestamp - b.timestamp);
+
+  // Build the set of SHAs that will be present in the commits table after this
+  // batch lands. Used by resolveRevertsSha to null out dangling references.
+  const knownShas = new Set<string>(commits.map((c) => c.sha));
+  for (const existing of db.prepare(`SELECT sha FROM commits`).all() as Array<{ sha: string }>) {
+    knownShas.add(existing.sha);
+  }
 
   const insertCommit = db.prepare(`
     INSERT OR IGNORE INTO commits
@@ -115,7 +138,7 @@ export function ingestRange(db: DB, repoPath: string, range: IngestRange): numbe
         c.subject,
         parsed.is_fix ? 1 : 0,
         parsed.is_revert ? 1 : 0,
-        parsed.reverts_sha
+        resolveRevertsSha(parsed.reverts_sha, knownShas)
       );
       for (const t of c.touches) {
         insertTouch.run(c.sha, t.file_path, t.adds, t.dels, t.change_type);
@@ -123,9 +146,22 @@ export function ingestRange(db: DB, repoPath: string, range: IngestRange): numbe
     }
   });
 
-  const BATCH = 1000;
-  for (let i = 0; i < commits.length; i += BATCH) {
-    tx(commits.slice(i, i + BATCH));
+  // Disable FK enforcement for the batch insert. Two reasons:
+  //   1. Commits with identical timestamps (common in bulk imports, squashed
+  //      history, or --allow-empty commit chains) have an unstable sort order,
+  //      so a revert may land before its target within a batch.
+  //   2. resolveRevertsSha already guarantees the value written to
+  //      commits.reverts_sha is either NULL or a SHA that WILL be present in
+  //      the commits table by end of the batch. FK consistency holds once the
+  //      batch is committed.
+  db.pragma("foreign_keys = OFF");
+  try {
+    const BATCH = 1000;
+    for (let i = 0; i < commits.length; i += BATCH) {
+      tx(commits.slice(i, i + BATCH));
+    }
+  } finally {
+    db.pragma("foreign_keys = ON");
   }
 
   deriveFixLinks(db);

@@ -227,8 +227,9 @@ Overall compression: 89.2%
 L0 compression:      97.5%
 AST engine:          51/51 files (0 regex fallback)
 Languages:           TypeScript, JavaScript, Python, Go, Rust
-Tests:               221 passing
-BlastRadius v1:      precision 93.9%, recall 100% (composto's own repo, medium|high band)
+Tests:               224 passing
+BlastRadius v1:      precision 90-96%, recall 99-100% on 3 repos
+                     (composto, picomatch, zod; medium|high band)
 ```
 
 ---
