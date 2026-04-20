@@ -5,6 +5,7 @@ dist/
 composto-benchmark-workspace/
 .agents/
 .claude/
+.worktrees/
 skills-lock.json
 SKILL.md
 
