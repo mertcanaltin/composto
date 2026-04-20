@@ -37,6 +37,11 @@ composto ir src/app.ts
 
 # Smart context within a token budget
 composto context src/ --budget 2000
+
+# Historical blast radius for a file (beta, feature-flagged)
+COMPOSTO_BLASTRADIUS=1 composto index
+composto impact src/auth/login.ts
+composto index --status
 ```
 
 ### MCP plugin (Claude Code, Cursor, Claude Desktop)
@@ -48,7 +53,7 @@ npm install -g composto-ai
 claude mcp add composto -- composto-mcp
 ```
 
-Composto adds 4 tools to your AI assistant: `composto_ir`, `composto_benchmark`, `composto_context`, `composto_scan`.
+Composto adds 5 tools to your AI assistant: `composto_ir`, `composto_benchmark`, `composto_context`, `composto_scan`, and `composto_blastradius` (the last one gated by `COMPOSTO_BLASTRADIUS=1` during beta).
 
 ---
 
@@ -92,7 +97,34 @@ composto trends .
 
 # Compare LLM quality: raw code vs IR (requires ANTHROPIC_API_KEY)
 composto benchmark-quality <file>
+
+# Historical blast radius — beta, gated by COMPOSTO_BLASTRADIUS=1
+composto index                 # bootstrap .composto/memory.db from git history
+composto impact <file>         # risk verdict + signals for a file
+composto index --status        # diagnostics: schema, freshness, calibration
 ```
+
+---
+
+## BlastRadius (beta)
+
+Beyond compression, Composto indexes your repo's git history into a local SQLite graph and exposes it as a queryable risk surface. Before your agent edits a file, it can ask: *"has this region been reverted? does it have a fix cluster? is the last author still around?"* — signals no LLM can infer from current code alone.
+
+Five signals per query: `revert_match`, `hotspot`, `fix_ratio`, `coverage_decline`, `author_churn`. Verdict is `low` / `medium` / `high` / `unknown`; when confidence is low the tool returns `unknown` rather than guessing. Precision is repo-calibrated (self-validation on every N=500 commits).
+
+```
+verdict:    high
+score:      1.00
+confidence: 0.30
+signals:
+  revert_match       ■■■■■■■■■■ strength=1.00 precision=0.50
+  hotspot            ·          strength=0.00 precision=0.30
+  ...
+```
+
+**v1 ship gate** on this repo: precision 93.9%, recall 100% on the `medium|high` band. Multi-repo validation pending. See [docs/blastradius-proof.md](docs/blastradius-proof.md) for the method + honest caveats.
+
+Feature-flagged via `COMPOSTO_BLASTRADIUS=1` during the beta. Available as both CLI (`composto impact`, `composto index`) and MCP tool (`composto_blastradius`).
 
 ---
 
@@ -195,7 +227,8 @@ Overall compression: 89.2%
 L0 compression:      97.5%
 AST engine:          51/51 files (0 regex fallback)
 Languages:           TypeScript, JavaScript, Python, Go, Rust
-Tests:               145 passing
+Tests:               221 passing
+BlastRadius v1:      precision 93.9%, recall 100% (composto's own repo, medium|high band)
 ```
 
 ---

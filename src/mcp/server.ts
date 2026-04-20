@@ -22,7 +22,7 @@ const ALL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs
 
 const server = new McpServer({
   name: "composto",
-  version: "0.2.3",
+  version: "0.4.0",
 });
 
 // Tool 1: composto_ir — Generate IR for a file

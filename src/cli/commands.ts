@@ -22,7 +22,7 @@ export function runScan(projectPath: string): void {
   const adapter = new CLIAdapter();
   const config = loadConfig(projectPath);
 
-  console.log("composto v0.2.3 — scanning...\n");
+  console.log("composto v0.4.0 — scanning...\n");
 
   const files = collectFiles(projectPath, [".ts", ".tsx", ".js", ".jsx"]);
   console.log(`  Found ${files.length} files\n`);
@@ -51,7 +51,7 @@ export function runTrends(projectPath: string): void {
   const adapter = new CLIAdapter();
   const config = loadConfig(projectPath);
 
-  console.log("composto v0.2.3 — trend analysis...\n");
+  console.log("composto v0.4.0 — trend analysis...\n");
 
   const entries = getGitLog(projectPath, 100);
   if (entries.length === 0) {
@@ -102,7 +102,7 @@ export async function runIR(projectPath: string, filePath: string, layer: string
 const ALL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs"];
 
 export async function runBenchmark(projectPath: string): Promise<void> {
-  console.log("composto v0.2.3 — benchmark\n");
+  console.log("composto v0.4.0 — benchmark\n");
 
   const files = collectFiles(projectPath, ALL_EXTENSIONS);
   console.log(`  ${files.length} files\n`);
@@ -159,7 +159,7 @@ export async function runBenchmarkQuality(projectPath: string, filePath: string)
   const code = readFileSync(filePath, "utf-8");
   const relPath = relative(projectPath, filePath);
 
-  console.log("composto v0.2.3 — quality benchmark\n");
+  console.log("composto v0.4.0 — quality benchmark\n");
   console.log(`  File: ${relPath}\n`);
   console.log("  Sending to Claude Haiku...\n");
 
@@ -190,8 +190,8 @@ export async function runBenchmarkQuality(projectPath: string, filePath: string)
 
 export async function runContext(projectPath: string, budget: number, target?: string): Promise<void> {
   const header = target
-    ? `composto v0.2.3 — context (target: ${target}, budget: ${budget} tokens)\n`
-    : `composto v0.2.3 — context (budget: ${budget} tokens)\n`;
+    ? `composto v0.4.0 — context (target: ${target}, budget: ${budget} tokens)\n`
+    : `composto v0.4.0 — context (budget: ${budget} tokens)\n`;
   console.log(header);
 
   const files = collectFiles(projectPath, ALL_EXTENSIONS);
