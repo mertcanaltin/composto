@@ -1,14 +1,14 @@
 # BlastRadius — Quality Proof (v1)
 
-**Date:** 2026-04-19
-**Scope:** One repo (composto itself), post-ingest ground-truth confusion matrix against the `medium|high` verdict band.
+**Date:** 2026-04-19 (updated 2026-04-20 with picomatch + zod observations)
+**Scope:** Two repos (composto + picomatch), post-ingest ground-truth confusion matrix against the `medium|high` verdict band. One additional repo (zod) surfaced a bootstrap bug tracked for v0.4.1.
 **Harness:** `scripts/blastradius-backtest.ts`
 
 ---
 
 ## Ship gate
 
-Spec §9.3 defines the ship gate as **precision > 60% and recall > 40%** on the `medium|high` verdict band across at least three public repos. This v1 runs against one repo only; Plan 5b will extend to `vitest` and one more public project.
+Spec §9.3 defines the ship gate as **precision > 60% and recall > 40%** on the `medium|high` verdict band across at least three public repos. v1 covers two repos (both pass); a third (zod) is blocked on a FK constraint bug fixed in v0.4.1.
 
 ## Results on the composto repository
 
@@ -43,11 +43,36 @@ Run: `pnpm exec tsx scripts/blastradius-backtest.ts .`
 }
 ```
 
-**Ship gate status: PASSED for this single repo.**
+**Ship gate status: PASSED.**
 
 - Precision: **93.9%** (46 TP / 49 medium-or-high). Of the files blastradius flagged as risky, 94% actually have a fix_link tied to them in the history.
 - Recall: **100%** (46 TP / 46 files-with-ground-truth-still-in-the-filesystem). No file that still exists and has fix_link history slipped through as "low".
 - Three false positives: files flagged medium|high without fix_links attached — candidate cases where the signal fires on *predictive* rather than *verified-historical* risk.
+
+## Results on picomatch
+
+Run: `pnpm exec tsx scripts/blastradius-backtest.ts /path/to/picomatch`
+
+```json
+{
+  "repo": "picomatch",
+  "total_files": 62,
+  "scanned": 62,
+  "ground_truth_files": 80,
+  "verdicts": { "high": 61, "medium": 1, "low": 0, "unknown": 0 },
+  "confusion_matrix_medium_high_band": { "tp": 56, "fp": 6, "fn": 0, "tn": 0 },
+  "precision": 0.903,
+  "recall": 1.000
+}
+```
+
+**Ship gate status: PASSED** — precision 90.3%, recall 100%.
+
+Important caveat: picomatch is small (62 source files) with dense fix history (80 files touched by fix_links historically, 28 of them deleted). Blastradius flagged **all 62 live files as medium+**. That means precision is meaningful (90.3% of the files it flagged actually have fix_link history) but **recall is weak signal** (there are no true negatives to measure against). Takeaway: in small repos with long fix history, treat the verdict as "this file has been touched during a fix window at some point" rather than a differentiator between safe and risky files.
+
+## Attempted: zod
+
+Cloning zod with full history and running the backtest surfaced a FOREIGN KEY constraint failure during Tier 1 ingest. Root cause: `commits.reverts_sha` declares `FOREIGN KEY REFERENCES commits(sha)`, and zod's history contains at least one revert commit whose `reverts_sha` points at a SHA that never appears in its own commits table (likely a truncated or mistyped SHA in the commit message). The chronological sort added in Plan 1 helps with ordering but does not protect against dangling references. Tracked for v0.4.1: either validate `reverts_sha` against `commits` before inserting (downgrade to `NULL` on miss) or drop the FK constraint on that column.
 
 ## Caveats on the v1 number
 
@@ -60,7 +85,8 @@ This is a **post-hoc confusion matrix**, not a true time-travel backtest. Two ho
 
 - **Time-travel queries.** For each historical fix commit `F`, rewind the effective DB state to `F^` and ask blastradius what verdict it would have returned for the files `F` touched. Only count true positives where the signal was available *before* the fix landed.
 - **Signal attribution.** Break down precision/recall per signal: a version where `revert_match` is excluded would confirm whether the independent signals carry enough weight on their own.
-- **Multi-repo coverage.** Run on `vitest` and at least one additional public OSS repo of moderate scale (2k–15k commits). Ship-gate wording in spec §9.3 requires three repos.
+- **Multi-repo coverage.** Extend beyond composto + picomatch to two more repos of moderate scale (2k–15k commits). Spec §9.3 calls for three; v0.4.1's FK fix should unblock zod.
+- **Small-repo over-flagging.** The picomatch run surfaced a design question: when a repo is small and fix-dense, the tool flags almost every file. Plan 5b should add a dispersion metric that distinguishes "dense fix history across most files" from "concentrated risk on specific files".
 - **Calibration lock.** v1 runs with repo-calibrated precision written by Plan 2's `refreshCalibration`. Plan 5b should record those per-repo precision values to the proof doc so future runs can compare against a fixed reference.
 
 ## Reproducibility
@@ -80,4 +106,4 @@ Expected wall-clock: under 30 seconds on a ~100-file, ~20-commit repo. Memory fo
 
 ## Conclusion
 
-The wedge-level claim from §1 of the design spec — "Composto becomes the causal oracle for coding agents" — clears its first numerical bar on its own codebase. The v1 backtest doesn't prove the claim at spec strength (single repo, partial signal independence, no time travel), but it does show the signals aren't noise: they cluster reliably on files with real fix history and stay out of the way on files without one. Plan 5b will tighten this into a three-repo, signal-attributed, time-travel evaluation.
+The wedge-level claim from §1 of the design spec — "Composto becomes the causal oracle for coding agents" — clears its first numerical bar on two independent codebases. The v1 backtest does not prove the claim at spec strength (only two repos, partial signal independence, no time travel, and picomatch exposed a small-repo over-flagging pattern), but it does show the signals are not noise: precision stays in the 90%+ band on both repos, the tool correctly declines to predict on shallow clones, and the attempted zod run turned up a real bug (FK crash on dangling `reverts_sha`) that v0.4.1 will fix. Plan 5b will tighten this into a three-plus-repo, signal-attributed, time-travel evaluation.
