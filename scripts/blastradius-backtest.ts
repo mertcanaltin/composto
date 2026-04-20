@@ -1,21 +1,31 @@
 #!/usr/bin/env tsx
-// BlastRadius backtest — runs the production blastradius over every source
-// file in a repo and measures precision/recall of the medium|high verdict
-// band against the repo's fix_links ground truth.
+// BlastRadius backtest — two modes:
 //
-// This is an approximation rather than a full time-travel backtest: we use
-// the DB's current state and ask "among files whose blastradius flags
-// medium|high today, how many have a real fix_link attached?" and "among
-// files with a real fix_link, how many would we have flagged?". A full
-// time-travel version would rewind each query to the pre-fix HEAD; that is
-// Plan 5b scope. This v1 is enough to prove (or disprove) the shape of the
-// product.
+//   (default, v1)  Runs the production blastradius over every source file
+//                  at HEAD and measures precision/recall of medium|high
+//                  against the repo's fix_links ground truth. Fast, but
+//                  revert_match reads fix_links directly so it is circular
+//                  with the ground truth — precision inflated.
 //
-// Usage: tsx scripts/blastradius-backtest.ts [repoPath]
+//   --time-travel  Plan 5b mode. For each ground-truth event, rewinds the
+//                  DB to the pre-fix ("suspected break") SHA and queries
+//                  BlastRadius against that snapshot. revert_match is
+//                  naturally 0 pre-break, so this is the honest eval.
+//                  Supports --exclude-signal for sensitivity analysis.
+//
+// Usage:
+//   tsx scripts/blastradius-backtest.ts [repoPath]
+//   tsx scripts/blastradius-backtest.ts [repoPath] --time-travel
+//   tsx scripts/blastradius-backtest.ts [repoPath] --time-travel \
+//       --exclude-signal revert_match
+//   tsx scripts/blastradius-backtest.ts [repoPath] --time-travel \
+//       --max-events 80
 
-import { readdirSync, statSync, existsSync } from "node:fs";
+import { readdirSync, statSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { resolve, relative, join, extname } from "node:path";
+import { tmpdir } from "node:os";
 import { MemoryAPI } from "../dist/memory/api.js";
+import { runTimeTravelBacktest, type SignalType } from "./backtest/time-travel.js";
 
 const DEFAULT_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs"]);
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".composto", "grammars", "coverage", ".next"]);
@@ -39,10 +49,98 @@ interface Prediction {
   had_fix_link: boolean;
 }
 
+interface ParsedArgs {
+  repoPath: string;
+  timeTravel: boolean;
+  excludeSignals: SignalType[];
+  maxEvents: number;
+}
+
+function parseArgs(argv: string[]): ParsedArgs {
+  const args = argv.slice(2);
+  let repoPath: string | null = null;
+  let timeTravel = false;
+  const excludeSignals: SignalType[] = [];
+  let maxEvents = 40;
+
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--time-travel") {
+      timeTravel = true;
+    } else if (a === "--exclude-signal") {
+      const name = args[++i];
+      if (!name) throw new Error("--exclude-signal requires a signal name");
+      excludeSignals.push(name as SignalType);
+    } else if (a === "--max-events") {
+      const n = Number(args[++i]);
+      if (!Number.isFinite(n) || n <= 0) {
+        throw new Error("--max-events requires a positive integer");
+      }
+      maxEvents = n;
+    } else if (a.startsWith("--")) {
+      throw new Error(`unknown flag: ${a}`);
+    } else if (repoPath === null) {
+      repoPath = a;
+    } else {
+      throw new Error(`unexpected argument: ${a}`);
+    }
+  }
+  return {
+    repoPath: resolve(repoPath ?? "."),
+    timeTravel,
+    excludeSignals,
+    maxEvents,
+  };
+}
+
+async function runTimeTravelMode(args: ParsedArgs): Promise<void> {
+  const workDir = mkdtempSync(join(tmpdir(), "composto-tt-cli-"));
+  console.error(`[backtest] mode: time-travel`);
+  console.error(`[backtest] repo: ${args.repoPath}`);
+  console.error(`[backtest] workDir: ${workDir}`);
+  if (args.excludeSignals.length > 0) {
+    console.error(`[backtest] exclude: ${args.excludeSignals.join(",")}`);
+  }
+  try {
+    const result = await runTimeTravelBacktest({
+      repoPath: args.repoPath,
+      workDir,
+      maxEvents: args.maxEvents,
+      excludeSignals: args.excludeSignals,
+      onProgress: (done, total) => {
+        console.error(`[backtest] event ${done}/${total}`);
+      },
+    });
+    const passedPrecision = result.precision >= 0.6;
+    const passedRecall = result.recall >= 0.4;
+    console.log(JSON.stringify({
+      ...result,
+      mode: "time-travel",
+      ship_gate: {
+        precision_target: 0.6,
+        recall_target: 0.4,
+        passed_precision: passedPrecision,
+        passed_recall: passedRecall,
+      },
+    }, null, 2));
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+}
+
 async function main() {
-  const repoPath = resolve(process.argv[2] ?? ".");
+  const args = parseArgs(process.argv);
+  if (args.timeTravel) {
+    await runTimeTravelMode(args);
+    return;
+  }
+  if (args.excludeSignals.length > 0) {
+    throw new Error("--exclude-signal requires --time-travel");
+  }
+  const repoPath = args.repoPath;
   const dbPath = join(repoPath, ".composto", "memory.db");
 
+  console.error(`[backtest] mode: head`);
   console.error(`[backtest] repo: ${repoPath}`);
   const api = new MemoryAPI({ dbPath, repoPath });
   try {
@@ -97,6 +195,7 @@ async function main() {
     const recall = tp + fn === 0 ? 0 : tp / (tp + fn);
 
     console.log(JSON.stringify({
+      mode: "head",
       repo: repoPath,
       total_files: files.length,
       scanned: predictions.length,
