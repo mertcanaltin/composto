@@ -7,62 +7,96 @@
 // so every failure mode (JSON parse, non-object payload, extract miss,
 // thrown error from the API) returns passthrough.
 //
-// Note on hookEventName: the Phase 1 plan specifies "BeforeTool" as Gemini
-// CLI's event name. If a future Gemini CLI revision standardizes on a
-// different literal, update here. The passthrough shape is the same
-// regardless, so misconfiguration degrades to passthrough rather than a
-// broken envelope.
+// Returns { envelope, metadata } so the CLI layer has full telemetry
+// visibility without re-parsing additionalContext.
 
 import { extractFilePath, type ToolInvocation } from "../extract.js";
 import { type HookDeps, defaultDeps } from "../api-deps.js";
 import { formatBlastRadiusContext } from "../format.js";
 import { join } from "node:path";
+import type { HookMetadata } from "./claude-code.js";
 
 interface HookOpts {
   stdin: string;
   cwd: string;
 }
 
-interface BeforeToolOutput {
+interface BeforeToolEnvelope {
   hookSpecificOutput?: {
     hookEventName?: "BeforeTool";
     additionalContext?: string;
   };
 }
 
+export interface GeminiCliResult {
+  envelope: BeforeToolEnvelope;
+  metadata: HookMetadata;
+}
+
+const EMPTY_META: HookMetadata = {
+  filePath: null,
+  verdict: null,
+  score: null,
+  confidence: null,
+};
+
+function passthrough(filePath: string | null = null): GeminiCliResult {
+  return {
+    envelope: { hookSpecificOutput: {} },
+    metadata: { ...EMPTY_META, filePath },
+  };
+}
+
 export async function runGeminiCliHook(
   opts: HookOpts,
   deps: HookDeps = defaultDeps,
-): Promise<BeforeToolOutput> {
-  const passthrough: BeforeToolOutput = { hookSpecificOutput: {} };
+): Promise<GeminiCliResult> {
   let payload: unknown;
   try {
     payload = JSON.parse(opts.stdin);
   } catch {
-    return passthrough;
+    return passthrough();
   }
-  if (typeof payload !== "object" || payload === null) return passthrough;
+  if (typeof payload !== "object" || payload === null) return passthrough();
 
   const filePath = extractFilePath(payload as ToolInvocation);
-  if (!filePath) return passthrough;
+  if (!filePath) return passthrough();
 
   try {
     const dbPath = join(opts.cwd, ".composto", "memory.db");
     const api = deps.makeApi({ dbPath, repoPath: opts.cwd });
     try {
       const res = await api.blastradius({ file: filePath });
-      if (!res || res.verdict === "low") return passthrough;
+      if (!res || res.verdict === "low") {
+        return {
+          envelope: { hookSpecificOutput: {} },
+          metadata: {
+            filePath,
+            verdict: res ? res.verdict : null,
+            score: res ? res.score : null,
+            confidence: res ? res.confidence : null,
+          },
+        };
+      }
       const body = formatBlastRadiusContext(filePath, res);
       return {
-        hookSpecificOutput: {
-          hookEventName: "BeforeTool",
-          additionalContext: body,
+        envelope: {
+          hookSpecificOutput: {
+            hookEventName: "BeforeTool",
+            additionalContext: body,
+          },
+        },
+        metadata: {
+          filePath,
+          verdict: res.verdict,
+          score: res.score,
+          confidence: res.confidence,
         },
       };
     } finally {
       await api.close();
     }
   } catch {
-    return passthrough;
+    return passthrough(filePath);
   }
 }

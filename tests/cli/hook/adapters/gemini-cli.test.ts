@@ -50,8 +50,8 @@ describe("gemini-cli BeforeTool adapter — unit tests with stubbed API", () => 
       { stdin, cwd: "/irrelevant" },
       makeStubDeps(fakeResponse("high")),
     );
-    expect(result.hookSpecificOutput?.hookEventName).toBe("BeforeTool");
-    expect(result.hookSpecificOutput?.additionalContext).toMatch(/verdict:\s*high/);
+    expect(result.envelope.hookSpecificOutput?.hookEventName).toBe("BeforeTool");
+    expect(result.envelope.hookSpecificOutput?.additionalContext).toMatch(/verdict:\s*high/);
   });
 
   it("emits additionalContext on verdict=medium", async () => {
@@ -63,7 +63,7 @@ describe("gemini-cli BeforeTool adapter — unit tests with stubbed API", () => 
       { stdin, cwd: "/irrelevant" },
       makeStubDeps(fakeResponse("medium")),
     );
-    expect(result.hookSpecificOutput?.additionalContext).toMatch(/verdict:\s*medium/);
+    expect(result.envelope.hookSpecificOutput?.additionalContext).toMatch(/verdict:\s*medium/);
   });
 
   it("emits additionalContext on verdict=unknown (surfaces thin-data warning)", async () => {
@@ -75,7 +75,7 @@ describe("gemini-cli BeforeTool adapter — unit tests with stubbed API", () => 
       { stdin, cwd: "/irrelevant" },
       makeStubDeps(fakeResponse("unknown")),
     );
-    expect(result.hookSpecificOutput?.additionalContext).toMatch(/verdict:\s*unknown/);
+    expect(result.envelope.hookSpecificOutput?.additionalContext).toMatch(/verdict:\s*unknown/);
   });
 
   it("passes through on verdict=low", async () => {
@@ -87,7 +87,7 @@ describe("gemini-cli BeforeTool adapter — unit tests with stubbed API", () => 
       { stdin, cwd: "/irrelevant" },
       makeStubDeps(fakeResponse("low")),
     );
-    expect(result.hookSpecificOutput?.additionalContext).toBeUndefined();
+    expect(result.envelope.hookSpecificOutput?.additionalContext).toBeUndefined();
   });
 
   it("passes through on non-file tool (API never called)", async () => {
@@ -98,7 +98,7 @@ describe("gemini-cli BeforeTool adapter — unit tests with stubbed API", () => 
       },
       makeStubDeps(null),
     );
-    expect(result.hookSpecificOutput?.additionalContext).toBeUndefined();
+    expect(result.envelope.hookSpecificOutput?.additionalContext).toBeUndefined();
   });
 
   it("passes through on malformed stdin (never throws)", async () => {
@@ -106,7 +106,7 @@ describe("gemini-cli BeforeTool adapter — unit tests with stubbed API", () => 
       { stdin: "not-json", cwd: "/irrelevant" },
       makeStubDeps(null),
     );
-    expect(result.hookSpecificOutput?.additionalContext).toBeUndefined();
+    expect(result.envelope.hookSpecificOutput?.additionalContext).toBeUndefined();
   });
 
   it("passes through on blastradius error (never blocks)", async () => {
@@ -118,6 +118,6 @@ describe("gemini-cli BeforeTool adapter — unit tests with stubbed API", () => 
       { stdin, cwd: "/irrelevant" },
       makeStubDeps(null, new Error("simulated DB failure")),
     );
-    expect(result.hookSpecificOutput?.additionalContext).toBeUndefined();
+    expect(result.envelope.hookSpecificOutput?.additionalContext).toBeUndefined();
   });
 });

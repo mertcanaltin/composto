@@ -23,18 +23,22 @@ describe("runHookDispatch", () => {
   it("routes claude-code pretooluse to the claude-code adapter", async () => {
     const result = await runHookDispatch({ platform: "claude-code", event: "pretooluse", stdin, cwd: "/irrelevant" }, stubHigh());
     // CC envelope
-    expect((result as any).hookSpecificOutput?.additionalContext).toMatch(/composto_blastradius/i);
+    expect((result.envelope as any).hookSpecificOutput?.additionalContext).toMatch(/composto_blastradius/i);
+    expect(result.metadata.verdict).toBe("high");
+    expect(result.metadata.filePath).toBe("src/a.ts");
   });
 
   it("routes cursor pretooluse to the cursor adapter", async () => {
     const result = await runHookDispatch({ platform: "cursor", event: "pretooluse", stdin, cwd: "/irrelevant" }, stubHigh());
     // Cursor envelope
-    expect((result as any).permissionDecision).toBe("deny");
+    expect((result.envelope as any).permissionDecision).toBe("deny");
+    expect(result.metadata.verdict).toBe("high");
   });
 
   it("routes gemini-cli beforetool to the gemini-cli adapter", async () => {
     const result = await runHookDispatch({ platform: "gemini-cli", event: "beforetool", stdin, cwd: "/irrelevant" }, stubHigh());
-    expect((result as any).hookSpecificOutput?.additionalContext).toMatch(/composto_blastradius/i);
+    expect((result.envelope as any).hookSpecificOutput?.additionalContext).toMatch(/composto_blastradius/i);
+    expect(result.metadata.verdict).toBe("high");
   });
 
   it("throws on unknown platform", async () => {

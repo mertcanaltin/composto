@@ -3,11 +3,17 @@
 // unknown combos throw (the CLI entry point catches and passthroughs so
 // the agent is never blocked, but the dispatcher itself is strict so
 // misconfiguration surfaces in tests).
+//
+// Returns a DispatchResult: { envelope, metadata }. The envelope is the
+// platform-specific JSON written to stdout. The metadata is what the CLI
+// layer hands to recordInvocation for telemetry — kept separate so the
+// telemetry path doesn't have to re-parse additionalContext strings.
 
 import { defaultDeps, type HookDeps } from "./api-deps.js";
 import { runClaudeCodeHook } from "./adapters/claude-code.js";
 import { runCursorHook } from "./adapters/cursor.js";
 import { runGeminiCliHook } from "./adapters/gemini-cli.js";
+import type { HookMetadata } from "./adapters/claude-code.js";
 
 export type Platform = "claude-code" | "cursor" | "gemini-cli";
 export type Event = "pretooluse" | "beforetool";
@@ -19,10 +25,17 @@ export interface DispatchOpts {
   cwd: string;
 }
 
+export interface DispatchResult {
+  envelope: unknown;
+  metadata: HookMetadata;
+}
+
+export type { HookMetadata } from "./adapters/claude-code.js";
+
 export async function runHookDispatch(
   opts: DispatchOpts,
   deps: HookDeps = defaultDeps
-): Promise<unknown> {
+): Promise<DispatchResult> {
   const p = opts.platform;
   const e = opts.event;
   const hookOpts = { stdin: opts.stdin, cwd: opts.cwd };

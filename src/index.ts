@@ -4,7 +4,11 @@ import {
 } from "./cli/commands.js";
 import { runInit, type InitClient } from "./cli/init.js";
 import { runHookDispatch, type Platform, type Event as HookEvent } from "./cli/hook/dispatcher.js";
-import { resolve } from "node:path";
+import { runStats } from "./cli/stats.js";
+import { openDatabase } from "./memory/db.js";
+import { runMigrations } from "./memory/schema.js";
+import { recordInvocation } from "./memory/telemetry/hook-invocations.js";
+import { join, resolve } from "node:path";
 
 async function readStdin(): Promise<string> {
   // Hook adapters expect a small JSON payload on stdin. If stdin is a TTY
@@ -110,6 +114,10 @@ switch (command) {
     for (const f of result.merged) console.log(`  merged  ${f}`);
     for (const f of result.skipped) console.log(`  skipped ${f} (already exists)`);
     console.log("\nRestart your AI client and check that 'composto' MCP is green.");
+    console.log(
+      "Composto collects local-only hook telemetry to help you monitor agent behavior. " +
+        "Disable with `composto stats --disable` at any time.",
+    );
     break;
   }
   case "hook": {
@@ -117,6 +125,11 @@ switch (command) {
     // stdin, emits the platform's hook response envelope as JSON on stdout.
     // On ANY error → print '{"hookSpecificOutput":{}}' (universal passthrough).
     // Hooks MUST NEVER exit non-zero — that can hang the agent.
+    //
+    // After emitting the envelope, best-effort-writes one row to
+    // hook_invocations for `composto stats`. Telemetry failures never
+    // propagate.
+    const hookStart = Date.now();
     try {
       const platform = args[1] as Platform | undefined;
       const event = args[2] as HookEvent | undefined;
@@ -131,10 +144,41 @@ switch (command) {
         stdin,
         cwd: process.cwd(),
       });
-      console.log(JSON.stringify(result));
+      console.log(JSON.stringify(result.envelope));
+
+      // Telemetry — best-effort. Never throws.
+      try {
+        const dbPath = join(process.cwd(), ".composto", "memory.db");
+        const db = openDatabase(dbPath);
+        try {
+          runMigrations(db);
+          recordInvocation(db, {
+            timestamp: Math.floor(Date.now() / 1000),
+            platform,
+            event,
+            filePath: result.metadata.filePath,
+            verdict: result.metadata.verdict,
+            score: result.metadata.score,
+            confidence: result.metadata.confidence,
+            latencyMs: Date.now() - hookStart,
+            cacheHit: false,
+          });
+        } finally {
+          db.close();
+        }
+      } catch {
+        /* telemetry best-effort */
+      }
     } catch {
       console.log('{"hookSpecificOutput":{}}');
     }
+    break;
+  }
+  case "stats": {
+    const json = args.includes("--json");
+    const disable = args.includes("--disable");
+    const res = runStats({ cwd: resolve("."), json, disable });
+    console.log(res.output);
     break;
   }
   case "version":
@@ -156,6 +200,7 @@ switch (command) {
     console.log("  init [--client=<name>]                Configure Composto MCP + hooks for an AI client");
     console.log("                                          (clients: cursor, claude-code, gemini-cli)");
     console.log("  hook <platform> <event>               Run BlastRadius hook (reads tool JSON from stdin)");
+    console.log("  stats [--json] [--disable]            Show hook telemetry (last 7d); --disable opts out");
     console.log("  version                               Show version");
     break;
 }

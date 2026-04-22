@@ -5,55 +5,93 @@
 // fall back to the .cursor/rules/composto.mdc rule that `composto init`
 // writes — that keeps the agent calling composto_blastradius proactively
 // without user-visible interrupts.
+//
+// Returns { envelope, metadata } so the CLI layer has full visibility into
+// the verdict/score/confidence for telemetry, even when the user-visible
+// envelope is empty (passthrough).
 
 import { extractFilePath, type ToolInvocation } from "../extract.js";
 import { type HookDeps, defaultDeps } from "../api-deps.js";
 import { formatBlastRadiusContext } from "../format.js";
 import { join } from "node:path";
+import type { HookMetadata } from "./claude-code.js";
 
 interface HookOpts {
   stdin: string;
   cwd: string;
 }
 
-interface CursorPreToolUseOutput {
+interface CursorEnvelope {
   permissionDecision?: "deny" | "allow" | "ask";
   permissionDecisionReason?: string;
+}
+
+export interface CursorResult {
+  envelope: CursorEnvelope;
+  metadata: HookMetadata;
 }
 
 const CURSOR_HINT =
   "this file's bug history suggests high risk — ask the user to confirm before editing.";
 
+const EMPTY_META: HookMetadata = {
+  filePath: null,
+  verdict: null,
+  score: null,
+  confidence: null,
+};
+
+function passthrough(filePath: string | null = null): CursorResult {
+  return { envelope: {}, metadata: { ...EMPTY_META, filePath } };
+}
+
 export async function runCursorHook(
   opts: HookOpts,
   deps: HookDeps = defaultDeps,
-): Promise<CursorPreToolUseOutput> {
-  const passthrough: CursorPreToolUseOutput = {};
+): Promise<CursorResult> {
   let payload: unknown;
   try {
     payload = JSON.parse(opts.stdin);
   } catch {
-    return passthrough;
+    return passthrough();
   }
-  if (typeof payload !== "object" || payload === null) return passthrough;
+  if (typeof payload !== "object" || payload === null) return passthrough();
 
   const filePath = extractFilePath(payload as ToolInvocation);
-  if (!filePath) return passthrough;
+  if (!filePath) return passthrough();
 
   try {
     const dbPath = join(opts.cwd, ".composto", "memory.db");
     const api = deps.makeApi({ dbPath, repoPath: opts.cwd });
     try {
       const res = await api.blastradius({ file: filePath });
-      if (!res || res.verdict !== "high") return passthrough;
+      if (!res || res.verdict !== "high") {
+        return {
+          envelope: {},
+          metadata: {
+            filePath,
+            verdict: res ? res.verdict : null,
+            score: res ? res.score : null,
+            confidence: res ? res.confidence : null,
+          },
+        };
+      }
       return {
-        permissionDecision: "deny",
-        permissionDecisionReason: formatBlastRadiusContext(filePath, res, { hint: CURSOR_HINT }),
+        envelope: {
+          permissionDecision: "deny",
+          permissionDecisionReason: formatBlastRadiusContext(filePath, res, { hint: CURSOR_HINT }),
+        },
+        metadata: {
+          filePath,
+          verdict: res.verdict,
+          score: res.score,
+          confidence: res.confidence,
+        },
       };
     } finally {
       await api.close();
     }
   } catch {
-    return passthrough;
+    return passthrough(filePath);
   }
 }

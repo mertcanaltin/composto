@@ -49,10 +49,10 @@ describe("cursor preToolUse adapter — hybrid deny-on-high", () => {
       { stdin, cwd: "/irrelevant" },
       makeStubDeps(fakeResponse("high")),
     );
-    expect(result.permissionDecision).toBe("deny");
-    expect(result.permissionDecisionReason).toMatch(/composto_blastradius/i);
-    expect(result.permissionDecisionReason).toMatch(/src\/auth\.ts/);
-    expect(result.permissionDecisionReason).toMatch(/verdict:\s*high/);
+    expect(result.envelope.permissionDecision).toBe("deny");
+    expect(result.envelope.permissionDecisionReason).toMatch(/composto_blastradius/i);
+    expect(result.envelope.permissionDecisionReason).toMatch(/src\/auth\.ts/);
+    expect(result.envelope.permissionDecisionReason).toMatch(/verdict:\s*high/);
   });
 
   it("passes through on verdict=medium (agent still has .mdc-rule path to call the MCP tool)", async () => {
@@ -64,7 +64,7 @@ describe("cursor preToolUse adapter — hybrid deny-on-high", () => {
       { stdin, cwd: "/irrelevant" },
       makeStubDeps(fakeResponse("medium")),
     );
-    expect(result.permissionDecision).toBeUndefined();
+    expect(result.envelope.permissionDecision).toBeUndefined();
   });
 
   it("passes through on verdict=low", async () => {
@@ -76,7 +76,7 @@ describe("cursor preToolUse adapter — hybrid deny-on-high", () => {
       { stdin, cwd: "/irrelevant" },
       makeStubDeps(fakeResponse("low")),
     );
-    expect(result.permissionDecision).toBeUndefined();
+    expect(result.envelope.permissionDecision).toBeUndefined();
   });
 
   it("passes through on verdict=unknown", async () => {
@@ -88,7 +88,7 @@ describe("cursor preToolUse adapter — hybrid deny-on-high", () => {
       { stdin, cwd: "/irrelevant" },
       makeStubDeps(fakeResponse("unknown")),
     );
-    expect(result.permissionDecision).toBeUndefined();
+    expect(result.envelope.permissionDecision).toBeUndefined();
   });
 
   it("passes through on non-file tools (extract returns null, API never called)", async () => {
@@ -97,7 +97,7 @@ describe("cursor preToolUse adapter — hybrid deny-on-high", () => {
       { stdin, cwd: "/irrelevant" },
       makeStubDeps(null), // won't be called
     );
-    expect(result.permissionDecision).toBeUndefined();
+    expect(result.envelope.permissionDecision).toBeUndefined();
   });
 
   it("passes through on malformed stdin (never throws)", async () => {
@@ -105,7 +105,7 @@ describe("cursor preToolUse adapter — hybrid deny-on-high", () => {
       { stdin: "not-json", cwd: "/irrelevant" },
       makeStubDeps(null),
     );
-    expect(result.permissionDecision).toBeUndefined();
+    expect(result.envelope.permissionDecision).toBeUndefined();
   });
 
   it("passes through on blastradius error (never blocks)", async () => {
@@ -117,6 +117,6 @@ describe("cursor preToolUse adapter — hybrid deny-on-high", () => {
       { stdin, cwd: "/irrelevant" },
       makeStubDeps(null, new Error("simulated DB failure")),
     );
-    expect(result.permissionDecision).toBeUndefined();
+    expect(result.envelope.permissionDecision).toBeUndefined();
   });
 });
