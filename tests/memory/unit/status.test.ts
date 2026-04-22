@@ -36,7 +36,7 @@ describe("collectStatus", () => {
     expect(s.schemaVersion).toBe(2);
     expect(s.bootstrapped).toBe(true);
     expect(s.indexedCommitsTotal).toBeGreaterThanOrEqual(20);
-    expect(s.calibrationRows).toBe(5);
+    expect(s.calibrationRows).toBe(4);
     expect(s.storageBytes).toBeGreaterThan(0);
     expect(s.integrityOk).toBe(true);
   });

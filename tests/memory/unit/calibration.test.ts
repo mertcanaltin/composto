@@ -24,7 +24,7 @@ describe("calibration", () => {
     rmSync(dbDir, { recursive: true, force: true });
   });
 
-  it("refreshCalibration populates a row for each of the 5 signal types", () => {
+  it("refreshCalibration populates a row for each of the 4 signal types", () => {
     const db = openDatabase(join(dbDir, "memory.db"));
     runMigrations(db);
     const head = revParseHead(repoDir);
@@ -36,7 +36,6 @@ describe("calibration", () => {
     const types = rows.map((r) => r.signal_type);
     expect(types).toEqual([
       "author_churn",
-      "coverage_decline",
       "fix_ratio",
       "hotspot",
       "revert_match",

@@ -19,7 +19,6 @@ export type SignalType =
   | "revert_match"
   | "hotspot"
   | "fix_ratio"
-  | "coverage_decline"
   | "author_churn";
 
 export type Intent =
