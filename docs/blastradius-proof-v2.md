@@ -155,3 +155,57 @@ pnpm exec tsx scripts/blastradius-backtest.ts /tmp/composto-backtest-repos/picom
 ```
 
 Harness is deterministic — same SHAs → same numbers.
+
+---
+
+## v2.1 — Post-wall-clock-fix (2026-04-22)
+
+After shipping three signal-rework commits — `24ccf9c` (retire `coverage_decline`), `97b1dfd` (hotspot DB-anchored window), `2cfdd17` (author_churn DB-anchored window) — re-ran the same four backtests. Summary: numbers became more honest (author_churn's saturation bug on old-history repos is gone), but the signal-attributed ship gate is still not met.
+
+### Results
+
+| Repo | Mode | Precision | Recall | Gate (≥0.6 / ≥0.4) | vs v2 |
+|------|------|-----------|--------|---------------------|-------|
+| composto | unattributed | **0.360** | 0.123 | ❌ / ❌ | precision +0.014, recall ≈ |
+| composto | attributed | **0.545** | 0.041 | ❌ / ❌ | precision +0.045, recall +0.013 |
+| picomatch | unattributed | **0.645** | 0.777 | ✅ / ✅ | precision +0.036, recall −0.039 |
+| picomatch | attributed | **0.455** | 0.049 | ❌ / ❌ | precision ≈, **recall collapsed from 0.320 → 0.049** |
+
+### What the picomatch attributed recall collapse means
+
+Before the fix, `author_churn` saturated at strength 1.0 on **95%** of picomatch files because its wall-clock "last 90 days" window excluded every commit in the pre-break DB (picomatch HEAD is 2024-era; wall-clock 2026-01-22 is after). Every file's author had `activity.n === 0` → strength 1.0. This was a false-positive amplifier that made attributed recall look higher than it really was. With the window correctly anchored at the DB's max timestamp, `author_churn` only fires when an author genuinely has zero activity in the pre-break 90d — which is much rarer. Attributed recall therefore tells the truth now: without `revert_match`, the other three signals barely identify the fix-touched files at all on picomatch.
+
+### Post-fix signal diagnostic
+
+Re-running `scripts/backtest/diagnose-signals.ts` on both repos:
+
+| Signal | composto fire / strength (pre → post) | picomatch fire / strength (pre → post) |
+|--------|---------------------------------------|----------------------------------------|
+| revert_match | 13.3% / 0.700 → 13.3% / 0.700 | 87.4% / 0.700 → 87.4% / 0.700 |
+| hotspot | 72.7% / 0.100 → 72.7% / 0.100 | 46.6% / 0.033 → **95.1%** / 0.033 |
+| fix_ratio | 2.1% / 0.067 → 2.1% / 0.067 | 10.7% / 0.133 → 10.7% / 0.133 |
+| author_churn | 0.7% / 0.500 → 0.7% / 0.500 | **95.1% / 1.000** → **66.0% / 0.500** |
+
+On picomatch, `author_churn` moved from "saturated everywhere" to "fires ~2/3 of the time at mid strength". `hotspot`'s fire rate went UP (DB-anchored window on an active historical codebase sees more recent activity than the wall-clock window did), but its strength stayed at the noise floor (0.033). On composto, signals are essentially unchanged — composto's break_shas are recent, so the wall-clock anchor wasn't far off from the DB-max anchor.
+
+### What remains broken
+
+**`hotspot` strength curve is the open wound.** It fires almost everywhere now at strength ~0.03–0.10, which is no different from "always on at zero weight". It muddies the score surface without discriminating. Strength formula is `min(1.0, touches_90d / 30)` — for a file with 3 touches in 90 days (typical), strength is 0.10. The fix-targeted files aren't meaningfully hotter than the controls.
+
+Three possible shapes for a follow-on fix, all in the multi-day-to-week range:
+
+1. **Percentile-relative strength**: compare file's `touches_90d` to the repo's distribution at the anchor time; top 10% → strength 0.5, top 2% → 1.0. Normalizes across repos.
+2. **Bug-weighted hotspot**: weight each touch by whether the commit was a fix. A "bug-prone" hotspot > a "refactor-heavy" hotspot.
+3. **Non-linear curve**: quantile-mapped or log-scaled so mid-range activity gets more separation.
+
+These are design choices with different trade-offs. Unlike the wall-clock bug (clearly wrong, one-line fix), none of these is "obviously correct" — they each need a small experiment against the backtest before committing.
+
+### Ship gate decision: **STILL NOT MET**
+
+The wall-clock fix was necessary but not sufficient. Two paths forward:
+
+**A1. Keep drilling — hotspot strength redesign (Path A round 2).** Pick one of the three shapes, implement, re-backtest. Estimated 3-5 days to ship + validate one shape; potentially two iterations if the first doesn't clear the gate. Total 1-2 weeks, still within Path A's budget.
+
+**B. Accept and reframe.** Publish v2.1 as the honest floor, narrow the product promise to "revert_match as bug-history memory", ship Phase 1 with that. picomatch unattributed (0.645 / 0.777) supports this narrower claim.
+
+**Strategic note:** Path A1 might still not clear the gate — `fix_ratio` is also weak (2-11% fire, strength 0.07-0.13) and may need its own pass. If A1 round 1 fails, the product-claim review from Path B comes up anyway. A1 is only worth it if we believe hotspot can move precision/recall into the gate range on at least one repo within a 1-2 week timebox.
