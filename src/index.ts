@@ -3,7 +3,20 @@ import {
   runImpact, runIndex, runIndexStatus,
 } from "./cli/commands.js";
 import { runInit, type InitClient } from "./cli/init.js";
+import { runHookDispatch, type Platform, type Event as HookEvent } from "./cli/hook/dispatcher.js";
 import { resolve } from "node:path";
+
+async function readStdin(): Promise<string> {
+  // Hook adapters expect a small JSON payload on stdin. If stdin is a TTY
+  // (interactive), return "" so the dispatcher short-circuits via its
+  // parse-failure passthrough.
+  if (process.stdin.isTTY) return "";
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks).toString("utf-8");
+}
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -98,6 +111,31 @@ switch (command) {
     console.log("\nRestart Cursor and check Settings → MCP that 'composto' is green.");
     break;
   }
+  case "hook": {
+    // composto hook <platform> <event> — reads PreToolUse/BeforeTool JSON from
+    // stdin, emits the platform's hook response envelope as JSON on stdout.
+    // On ANY error → print '{"hookSpecificOutput":{}}' (universal passthrough).
+    // Hooks MUST NEVER exit non-zero — that can hang the agent.
+    try {
+      const platform = args[1] as Platform | undefined;
+      const event = args[2] as HookEvent | undefined;
+      if (!platform || !event) {
+        console.log('{"hookSpecificOutput":{}}');
+        break;
+      }
+      const stdin = await readStdin();
+      const result = await runHookDispatch({
+        platform,
+        event,
+        stdin,
+        cwd: process.cwd(),
+      });
+      console.log(JSON.stringify(result));
+    } catch {
+      console.log('{"hookSpecificOutput":{}}');
+    }
+    break;
+  }
   case "version":
     console.log("composto v0.4.2");
     break;
@@ -115,6 +153,7 @@ switch (command) {
     console.log("  index [--since=YYYY-MM-DD]            Build or refresh the memory index (--since bounds work for huge repos)");
     console.log("  index --status                        Show memory index diagnostics");
     console.log("  init [--client=cursor]                Configure Composto MCP for an AI client");
+    console.log("  hook <platform> <event>               Run BlastRadius hook (reads tool JSON from stdin)");
     console.log("  version                               Show version");
     break;
 }

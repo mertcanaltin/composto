@@ -8,8 +8,8 @@
 
 import { extractFilePath, type ToolInvocation } from "../extract.js";
 import { type HookDeps, defaultDeps } from "../api-deps.js";
+import { formatBlastRadiusContext } from "../format.js";
 import { join } from "node:path";
-import type { BlastRadiusResponse } from "../../../memory/types.js";
 
 interface HookOpts {
   stdin: string;
@@ -20,6 +20,9 @@ interface CursorPreToolUseOutput {
   permissionDecision?: "deny" | "allow" | "ask";
   permissionDecisionReason?: string;
 }
+
+const CURSOR_HINT =
+  "this file's bug history suggests high risk — ask the user to confirm before editing.";
 
 export async function runCursorHook(
   opts: HookOpts,
@@ -45,7 +48,7 @@ export async function runCursorHook(
       if (!res || res.verdict !== "high") return passthrough;
       return {
         permissionDecision: "deny",
-        permissionDecisionReason: formatReason(filePath, res),
+        permissionDecisionReason: formatBlastRadiusContext(filePath, res, { hint: CURSOR_HINT }),
       };
     } finally {
       await api.close();
@@ -53,20 +56,4 @@ export async function runCursorHook(
   } catch {
     return passthrough;
   }
-}
-
-function formatReason(filePath: string, res: BlastRadiusResponse): string {
-  const firing = res.signals
-    .filter((s) => s.strength > 0)
-    .map((s) => `${s.type}=${s.strength.toFixed(2)}`)
-    .join(", ");
-  return [
-    `<composto_blastradius>`,
-    `  file: ${filePath}`,
-    `  verdict: ${res.verdict}`,
-    `  score: ${res.score.toFixed(2)} confidence: ${res.confidence.toFixed(2)}`,
-    firing ? `  firing_signals: ${firing}` : `  firing_signals: (none)`,
-    `  hint: this file's bug history suggests high risk — ask the user to confirm before editing.`,
-    `</composto_blastradius>`,
-  ].join("\n");
 }

@@ -12,15 +12,11 @@
 // different literal, update here. The passthrough shape is the same
 // regardless, so misconfiguration degrades to passthrough rather than a
 // broken envelope.
-// Opportunity for shared formatter in P1.1d cleanup — both CC and Gemini CLI
-// currently duplicate `formatContext`.
-// formatContext duplicated from claude-code.ts (identical wording) — see
-// header note about P1.1d cleanup.
 
 import { extractFilePath, type ToolInvocation } from "../extract.js";
 import { type HookDeps, defaultDeps } from "../api-deps.js";
+import { formatBlastRadiusContext } from "../format.js";
 import { join } from "node:path";
-import type { BlastRadiusResponse } from "../../../memory/types.js";
 
 interface HookOpts {
   stdin: string;
@@ -56,7 +52,7 @@ export async function runGeminiCliHook(
     try {
       const res = await api.blastradius({ file: filePath });
       if (!res || res.verdict === "low") return passthrough;
-      const body = formatContext(filePath, res);
+      const body = formatBlastRadiusContext(filePath, res);
       return {
         hookSpecificOutput: {
           hookEventName: "BeforeTool",
@@ -69,20 +65,4 @@ export async function runGeminiCliHook(
   } catch {
     return passthrough;
   }
-}
-
-function formatContext(filePath: string, res: BlastRadiusResponse): string {
-  const firing = res.signals
-    .filter((s) => s.strength > 0)
-    .map((s) => `${s.type}=${s.strength.toFixed(2)}`)
-    .join(", ");
-  return [
-    `<composto_blastradius>`,
-    `  file: ${filePath}`,
-    `  verdict: ${res.verdict}`,
-    `  score: ${res.score.toFixed(2)} confidence: ${res.confidence.toFixed(2)}`,
-    firing ? `  firing_signals: ${firing}` : `  firing_signals: (none)`,
-    `  hint: this file's bug history may be relevant to your edit. See composto_blastradius for detail.`,
-    `</composto_blastradius>`,
-  ].join("\n");
 }
