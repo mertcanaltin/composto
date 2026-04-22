@@ -1,17 +1,23 @@
 // src/memory/signals/hotspot.ts
 // Spec §6.2: strength = min(1.0, touches_90d / 30)
+//
+// The 90-day window is anchored at the DB's latest commit timestamp, not
+// wall clock, so this signal is meaningful during time-travel backtests
+// and regardless of ingest freshness. Falls back to wall clock only when
+// the DB is empty.
 
 import type { DB } from "../db.js";
 import type { Signal } from "../types.js";
 import { getCalibration } from "./calibration-lookup.js";
+import { getDbMaxTimestamp } from "./db-clock.js";
 
 const WINDOW_SECONDS = 90 * 86400;
 const SATURATION_TOUCHES = 30;
 const FALLBACK_PRECISION = 0.3;
 
 export function computeHotspot(db: DB, filePath: string): Signal {
-  const now = Math.floor(Date.now() / 1000);
-  const lowerBound = now - WINDOW_SECONDS;
+  const anchor = getDbMaxTimestamp(db) ?? Math.floor(Date.now() / 1000);
+  const lowerBound = anchor - WINDOW_SECONDS;
 
   const row = db
     .prepare(`
