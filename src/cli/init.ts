@@ -235,38 +235,49 @@ function initGeminiCli(
   const settingsPath =
     options.geminiSettingsPath ?? join(homedir(), ".gemini", "settings.json");
   const relPath = settingsPath;
-  const existed = existsSync(settingsPath);
-  const existing = readJsonIfExists(settingsPath);
+  // User-global HOME writes can fail in ways project-local writes cannot:
+  // a read-only HOME, a symlink pointing nowhere, a path component that's a
+  // character device (e.g. /dev/null/foo), an out-of-disk condition, or just
+  // a filesystem permission surprise on locked-down CI. We catch the whole
+  // write path and surface the failure via result.skipped so `runInit` can
+  // still return normally — the user sees the reason instead of a crash.
+  try {
+    const existed = existsSync(settingsPath);
+    const existing = readJsonIfExists(settingsPath);
 
-  const mcpServers = {
-    ...((existing.mcpServers as Record<string, unknown>) ?? {}),
-    composto: { command: "composto-mcp" },
-  };
+    const mcpServers = {
+      ...((existing.mcpServers as Record<string, unknown>) ?? {}),
+      composto: { command: "composto-mcp" },
+    };
 
-  const compostoHookEntry = {
-    matcher: "edit_file|write_file|replace",
-    hooks: [
-      { type: "command", command: "composto hook gemini-cli beforetool" },
-    ],
-  };
-  const existingHooks = (existing.hooks as Record<string, unknown>) ?? {};
-  const beforeTool = mergeHookArray(
-    existingHooks.BeforeTool,
-    compostoHookEntry,
-    (e) =>
-      ((e as { hooks?: Array<{ command?: string }> })?.hooks?.[0]?.command) ??
-      "",
-  );
+    const compostoHookEntry = {
+      matcher: "edit_file|write_file|replace",
+      hooks: [
+        { type: "command", command: "composto hook gemini-cli beforetool" },
+      ],
+    };
+    const existingHooks = (existing.hooks as Record<string, unknown>) ?? {};
+    const beforeTool = mergeHookArray(
+      existingHooks.BeforeTool,
+      compostoHookEntry,
+      (e) =>
+        ((e as { hooks?: Array<{ command?: string }> })?.hooks?.[0]?.command) ??
+        "",
+    );
 
-  const merged = {
-    ...existing,
-    mcpServers,
-    hooks: { ...existingHooks, BeforeTool: beforeTool },
-  };
-  ensureDir(settingsPath);
-  writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n");
-  if (existed) result.merged.push(relPath);
-  else result.written.push(relPath);
+    const merged = {
+      ...existing,
+      mcpServers,
+      hooks: { ...existingHooks, BeforeTool: beforeTool },
+    };
+    ensureDir(settingsPath);
+    writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n");
+    if (existed) result.merged.push(relPath);
+    else result.written.push(relPath);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    result.skipped.push(`${settingsPath} (write failed: ${reason})`);
+  }
 }
 
 export function runInit(projectPath: string, options: InitOptions): InitResult {

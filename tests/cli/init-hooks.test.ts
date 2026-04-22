@@ -264,4 +264,26 @@ describe("composto init — gemini-cli hook wiring", () => {
     );
     expect(compostoEntries.length).toBe(1);
   });
+
+  // --------------------------------------------------------------------------
+  // Error boundary — a failing write on the Gemini user-global settings path
+  // must NOT throw out of runInit. Surface it via result.skipped so the user
+  // sees what happened without the whole init crashing.
+  // --------------------------------------------------------------------------
+  it("captures write failure in result.skipped instead of throwing", () => {
+    // /dev/null is a character device, not a directory — writing to a child
+    // path of it deterministically fails on macOS and Linux with ENOTDIR.
+    const unwritable = "/dev/null/composto-gemini-settings.json";
+    let result: ReturnType<typeof runInit> | undefined;
+    expect(() => {
+      result = runInit(tmp, {
+        client: "gemini-cli",
+        geminiSettingsPath: unwritable,
+      });
+    }).not.toThrow();
+    expect(result).toBeDefined();
+    const skippedHit = result!.skipped.find((s) => /write failed/.test(s));
+    expect(skippedHit).toBeDefined();
+    expect(skippedHit).toMatch(/\/dev\/null\/composto-gemini-settings\.json/);
+  });
 });
