@@ -3,7 +3,7 @@
 // Returns null for tools that don't touch a specific file — the
 // dispatcher uses null as "not our business, let the call through".
 
-type ToolInvocation = {
+export type ToolInvocation = {
   tool_name?: string;
   tool_input?: Record<string, unknown>;
 };
