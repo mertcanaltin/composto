@@ -332,10 +332,13 @@ score = Σᵢ (signalᵢ.strength × calibrationᵢ.precision)
 | `revert_match` | 1.0 if `revert_marker` evidence exists for an affecting commit; 0.7 if `short_followup_fix`; 0.4 if `same_region_fix_chain`; 0 otherwise | Evidence type directly maps to strength |
 | `hotspot` | `min(1.0, touches_90d / 30)` | Saturates at 30 touches so one hotspot doesn't dominate |
 | `fix_ratio` | `max(0, (ratio - 0.3) / 0.5)` over last 30 commits touching file | Dead zone below 30%, saturates at 80% |
-| `coverage_decline` | 1.0 if `COV:↓` from `ir/health.ts`; 0 otherwise | Binary, reused signal |
 | `author_churn` | 1.0 if last author has 0 commits in last 90d; 0.5 if <5; 0 otherwise | Institutional-expertise signal |
 
 Each formula has a saturation ceiling and a dead zone. No single extreme signal dominates; no mild condition contributes noise.
+
+**`coverage_decline` — retired 2026-04-22.** The original signal expected a coverage-data ingestion pipeline (lcov / test-run artifacts) that v1 does not have. The diagnostic in `docs/blastradius-signal-diagnostic.md` confirmed 0% fire rate on both composto and picomatch (median sample_size = 0). Rather than shipping a known-broken signal, v1 retires it and shrinks the signal set from 5 to 4. Coverage as a risk axis can return later with its own ingestion sub-spec.
+
+**`hotspot` and `author_churn` — reference clock, not wall clock.** Both signals use a "last 90 days" window anchored at the DB's latest `commits.timestamp` (via `getDbMaxTimestamp` in `src/memory/signals/db-clock.ts`), not `Date.now()`. This makes them meaningful during time-travel backtests and regardless of ingest freshness. See `docs/blastradius-signal-diagnostic.md` for the wall-clock regression that motivated this change.
 
 ### 6.3 Confidence — weakest-link `min`
 

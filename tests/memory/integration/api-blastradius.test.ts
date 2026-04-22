@@ -28,7 +28,7 @@ describe("MemoryAPI.blastradius end-to-end", () => {
   it("returns an ok response with a verdict for a file touched by a revert", async () => {
     const res = await api.blastradius({ file: "token.ts" });
     expect(res.status).toBe("ok");
-    expect(res.signals.length).toBe(5);
+    expect(res.signals.length).toBe(4);
     const revert = res.signals.find((s) => s.type === "revert_match");
     expect(revert?.strength).toBeGreaterThan(0);
     expect(res.metadata.indexed_commits_through).toMatch(/^[0-9a-f]{40}$/);

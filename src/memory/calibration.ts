@@ -50,11 +50,6 @@ function validateFixRatio(db: DB): Validation {
   return { total, hits };
 }
 
-function validateCoverageDecline(_db: DB): Validation {
-  // Binary signal from ir/health.ts — no retrospective event stream.
-  // Sample size starts at 0; stays heuristic until Plan 5 external backtest.
-  return { total: 0, hits: 0 };
-}
 
 function validateAuthorChurn(db: DB): Validation {
   const total = (db.prepare(`SELECT COUNT(*) AS n FROM file_touches`).get() as { n: number }).n;
@@ -66,7 +61,6 @@ const VALIDATORS: Record<SignalType, (db: DB) => Validation> = {
   revert_match: validateRevertMatch,
   hotspot: validateHotspot,
   fix_ratio: validateFixRatio,
-  coverage_decline: validateCoverageDecline,
   author_churn: validateAuthorChurn,
 };
 

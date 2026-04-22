@@ -6,7 +6,6 @@ const s: Signal[] = [
   { type: "revert_match", strength: 1.0, precision: 0.5, sample_size: 25, evidence: [] },
   { type: "hotspot", strength: 0, precision: 0.3, sample_size: 0, evidence: [] },
   { type: "fix_ratio", strength: 0, precision: 0.3, sample_size: 0, evidence: [] },
-  { type: "coverage_decline", strength: 0, precision: 0.3, sample_size: 0, evidence: [] },
   { type: "author_churn", strength: 0, precision: 0.3, sample_size: 0, evidence: [] },
 ];
 
@@ -24,8 +23,8 @@ describe("buildEnvelope", () => {
     });
     expect(env.status).toBe("ok");
     expect(env.verdict).toBe("medium");
-    expect(env.signals.length).toBe(5);
-    expect(env.metadata.signal_coverage).toBe("1/5");
+    expect(env.signals.length).toBe(4);
+    expect(env.metadata.signal_coverage).toBe("1/4");
     expect(env.calibration).toBe("repo-calibrated"); // any firing signal with sample_size > 0 → repo-calibrated
   });
 

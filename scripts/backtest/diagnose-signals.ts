@@ -29,7 +29,6 @@ const SIGNAL_TYPES: SignalType[] = [
   "revert_match",
   "hotspot",
   "fix_ratio",
-  "coverage_decline",
   "author_churn",
 ];
 
