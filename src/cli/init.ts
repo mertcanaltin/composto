@@ -1,10 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-export type InitClient = "cursor";
+export type InitClient = "cursor" | "claude-code" | "gemini-cli";
 
 export interface InitOptions {
   client?: InitClient;
+  /**
+   * Override the Gemini CLI settings path (normally ~/.gemini/settings.json).
+   * Used by tests to redirect writes away from the real user home.
+   */
+  geminiSettingsPath?: string;
 }
 
 export interface InitResult {
@@ -96,6 +102,70 @@ function writeFileSkipIfExists(
   result.written.push(relPath);
 }
 
+/**
+ * Append a composto hook entry to an existing hook array, de-duplicated on a
+ * user-supplied key. Hook arrays are _additive_ (users may have their own
+ * entries) so we never replace — we only append when our key is absent. This
+ * keeps `composto init` idempotent across repeated runs.
+ */
+function mergeHookArray(
+  existingHooks: unknown,
+  newEntry: unknown,
+  dedupKey: (entry: unknown) => string,
+): unknown[] {
+  const arr: unknown[] = Array.isArray(existingHooks) ? [...existingHooks] : [];
+  const key = dedupKey(newEntry);
+  if (arr.some((e) => dedupKey(e) === key)) return arr;
+  arr.push(newEntry);
+  return arr;
+}
+
+function readJsonIfExists(filePath: string): Record<string, unknown> {
+  if (!existsSync(filePath)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, "utf-8"));
+    return (parsed && typeof parsed === "object" ? parsed : {}) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    return {};
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cursor
+// ---------------------------------------------------------------------------
+
+function writeCursorHooks(projectPath: string, result: InitResult): void {
+  const hooksPath = join(projectPath, ".cursor", "hooks.json");
+  const relPath = ".cursor/hooks.json";
+  const existed = existsSync(hooksPath);
+  const existing = readJsonIfExists(hooksPath);
+
+  const existingHooks = (existing.hooks as Record<string, unknown>) ?? {};
+  const compostoEntry = {
+    matcher: "Edit|Write",
+    command: "composto hook cursor pretooluse",
+  };
+  const preToolUse = mergeHookArray(
+    existingHooks.preToolUse,
+    compostoEntry,
+    (e) => (e as { command?: string })?.command ?? "",
+  );
+
+  const merged: Record<string, unknown> = {
+    ...existing,
+    version: existing.version ?? 1,
+    hooks: { ...existingHooks, preToolUse },
+  };
+
+  ensureDir(hooksPath);
+  writeFileSync(hooksPath, JSON.stringify(merged, null, 2) + "\n");
+  if (existed) result.merged.push(relPath);
+  else result.written.push(relPath);
+}
+
 function initCursor(projectPath: string, result: InitResult): void {
   writeJsonMerged(
     join(projectPath, ".cursor", "mcp.json"),
@@ -109,11 +179,101 @@ function initCursor(projectPath: string, result: InitResult): void {
     result,
     ".cursor/rules/composto.mdc",
   );
+  writeCursorHooks(projectPath, result);
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code
+// ---------------------------------------------------------------------------
+
+function initClaudeCode(projectPath: string, result: InitResult): void {
+  const settingsPath = join(projectPath, ".claude", "settings.json");
+  const relPath = ".claude/settings.json";
+  const existed = existsSync(settingsPath);
+  const existing = readJsonIfExists(settingsPath);
+
+  const mcpServers = {
+    ...((existing.mcpServers as Record<string, unknown>) ?? {}),
+    composto: { command: "composto-mcp" },
+  };
+
+  const compostoHookEntry = {
+    matcher: "Edit|Write|MultiEdit",
+    hooks: [
+      { type: "command", command: "composto hook claude-code pretooluse" },
+    ],
+  };
+  const existingHooks = (existing.hooks as Record<string, unknown>) ?? {};
+  const preToolUse = mergeHookArray(
+    existingHooks.PreToolUse,
+    compostoHookEntry,
+    (e) =>
+      ((e as { hooks?: Array<{ command?: string }> })?.hooks?.[0]?.command) ??
+      "",
+  );
+
+  const merged = {
+    ...existing,
+    mcpServers,
+    hooks: { ...existingHooks, PreToolUse: preToolUse },
+  };
+  ensureDir(settingsPath);
+  writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n");
+  if (existed) result.merged.push(relPath);
+  else result.written.push(relPath);
+}
+
+// ---------------------------------------------------------------------------
+// Gemini CLI (user-global, not project-local — tests MUST pass an override)
+// ---------------------------------------------------------------------------
+
+function initGeminiCli(
+  _projectPath: string,
+  result: InitResult,
+  options: InitOptions,
+): void {
+  const settingsPath =
+    options.geminiSettingsPath ?? join(homedir(), ".gemini", "settings.json");
+  const relPath = settingsPath;
+  const existed = existsSync(settingsPath);
+  const existing = readJsonIfExists(settingsPath);
+
+  const mcpServers = {
+    ...((existing.mcpServers as Record<string, unknown>) ?? {}),
+    composto: { command: "composto-mcp" },
+  };
+
+  const compostoHookEntry = {
+    matcher: "edit_file|write_file|replace",
+    hooks: [
+      { type: "command", command: "composto hook gemini-cli beforetool" },
+    ],
+  };
+  const existingHooks = (existing.hooks as Record<string, unknown>) ?? {};
+  const beforeTool = mergeHookArray(
+    existingHooks.BeforeTool,
+    compostoHookEntry,
+    (e) =>
+      ((e as { hooks?: Array<{ command?: string }> })?.hooks?.[0]?.command) ??
+      "",
+  );
+
+  const merged = {
+    ...existing,
+    mcpServers,
+    hooks: { ...existingHooks, BeforeTool: beforeTool },
+  };
+  ensureDir(settingsPath);
+  writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n");
+  if (existed) result.merged.push(relPath);
+  else result.written.push(relPath);
 }
 
 export function runInit(projectPath: string, options: InitOptions): InitResult {
   const client: InitClient = options.client ?? "cursor";
   const result: InitResult = { client, written: [], skipped: [], merged: [] };
-  initCursor(projectPath, result);
+  if (client === "claude-code") initClaudeCode(projectPath, result);
+  else if (client === "gemini-cli") initGeminiCli(projectPath, result, options);
+  else initCursor(projectPath, result);
   return result;
 }
