@@ -1,24 +1,23 @@
 # Composto
 
-**Send meaning to your LLM, not code. 89% fewer tokens, same understanding.**
+**Causal memory layer for coding agents. Catches the bug your agent is about to reintroduce.**
 
-Composto parses your code into an AST, classifies every node by importance, and drops the noise. Your LLM gets the signal — function signatures, control flow, dependencies — without the braces, semicolons, and string literals it already knows.
+Composto is a repo-local graph of your git history that your AI coding agent consults before every edit. When a file was reverted recently, has a fix cluster in its history, or was last touched by someone who left the team, Composto surfaces that signal as in-context guidance before the agent writes the code. Hook-enforced on Claude Code, Cursor, and Gemini CLI. Local-first, MIT.
 
 ```
-Raw source:  3,782 tokens    →    Composto IR:  663 tokens (82.5% savings)
+$ composto impact src/memory/signals/hotspot.ts
 
-USE:[../types.js, ./structure.js, ./fingerprint.js, ./health.js]
-OUT FN:generateL0(code: string, filePath: string)
-    RET `${filePath}\n${declarations.join("\n")}`
-OUT ASYNC FN:generateL1(code: string, filePath: string, health: HealthAnnotation...)
-    IF:health → RET annotateIR(ir, health)
-    RET ir
-OUT FN:generateLayer(layer: IRLayer, options: {...})
-    SWITCH:layer
-        CASE:"L0" → RET generateL0(...)
-        CASE:"L1" → RET generateL1(...)
-        CASE:"L2" → RET generateL2(...)
-        CASE:"L3" → RET options.code
+verdict:    medium
+score:      0.52
+confidence: 0.50
+signals:
+  revert_match       ■■■■■■■■■■ strength=1.00 precision=1.00
+  hotspot            ■          strength=0.10 precision=0.54
+  fix_ratio          ■          strength=0.07 precision=0.54
+  author_churn       ·          strength=0.00 precision=0.16
+
+# This file was touched by a Revert commit in history.
+# blastradius remembers. Your LLM couldn't.
 ```
 
 ---
@@ -29,20 +28,34 @@ OUT FN:generateLayer(layer: IRLayer, options: {...})
 # Install
 npm install -g composto-ai
 
-# See how much you save
-composto benchmark .
+# One-command setup, wires MCP + PreToolUse hook into your AI client
+cd your-project
+composto init --client=claude-code     # or cursor, or gemini-cli
 
-# Generate IR for a file
-composto ir src/app.ts
+# Restart your AI client. Hook fires on every Edit / Write / MultiEdit.
+# On medium|high|unknown verdicts, the agent gets a composto_blastradius
+# block in context before it acts. Passthrough on low.
 
-# Smart context within a token budget
-composto context src/ --budget 2000
+# Observe
+composto stats              # hook invocations, verdict distribution, latency
+composto stats --disable    # local-only opt-out (writes .composto/telemetry-disabled)
 
-# Historical blast radius for a file (beta, feature-flagged)
-COMPOSTO_BLASTRADIUS=1 composto index
+# Query on demand
 composto impact src/auth/login.ts
-composto index --status
+composto index --status     # diagnostics: schema, freshness, calibration
 ```
+
+### Also in the box: AST compression tools
+
+Composto also ships a tree-sitter based AST compressor (about 89% token savings) and a smart context packer for bug-fix tasks. These are separate from the causal layer but live in the same binary.
+
+```bash
+composto ir src/app.ts                 # compress a file to IR (L0/L1/L2/L3)
+composto context src/ --budget 2000    # smart context within a token budget
+composto benchmark .                   # see compression stats
+```
+
+See the [IR Layers](#ir-layers), [Health-Aware IR](#health-aware-ir), and [Context Budget](#context-budget) sections below for details.
 
 ### MCP plugin (Claude Code, Cursor, Claude Desktop)
 
@@ -175,7 +188,7 @@ composto index --status        # diagnostics: schema, freshness, calibration
 
 ---
 
-## BlastRadius (beta)
+## BlastRadius
 
 Beyond compression, Composto indexes your repo's git history into a local SQLite graph and exposes it as a queryable risk surface. Before your agent edits a file, it can ask: *"has this region been reverted? who fixed the last similar bug? is the last author still around?"* — signals no LLM can infer from current code alone.
 
