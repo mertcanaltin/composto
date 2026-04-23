@@ -33,7 +33,7 @@ describe("collectStatus", () => {
     db.close();
 
     const s = collectStatus(dbPath);
-    expect(s.schemaVersion).toBe(2);
+    expect(s.schemaVersion).toBe(3);
     expect(s.bootstrapped).toBe(true);
     expect(s.indexedCommitsTotal).toBeGreaterThanOrEqual(20);
     expect(s.calibrationRows).toBe(4);

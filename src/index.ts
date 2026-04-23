@@ -3,7 +3,24 @@ import {
   runImpact, runIndex, runIndexStatus,
 } from "./cli/commands.js";
 import { runInit, type InitClient } from "./cli/init.js";
-import { resolve } from "node:path";
+import { runHookDispatch, type Platform, type Event as HookEvent } from "./cli/hook/dispatcher.js";
+import { runStats } from "./cli/stats.js";
+import { openDatabase } from "./memory/db.js";
+import { runMigrations } from "./memory/schema.js";
+import { recordInvocation } from "./memory/telemetry/hook-invocations.js";
+import { join, resolve } from "node:path";
+
+async function readStdin(): Promise<string> {
+  // Hook adapters expect a small JSON payload on stdin. If stdin is a TTY
+  // (interactive), return "" so the dispatcher short-circuits via its
+  // parse-failure passthrough.
+  if (process.stdin.isTTY) return "";
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks).toString("utf-8");
+}
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -85,9 +102,10 @@ switch (command) {
     break;
   }
   case "init": {
+    const valid = ["cursor", "claude-code", "gemini-cli"] as const;
     const clientArg = args.find((a) => a.startsWith("--client="))?.slice("--client=".length);
-    if (clientArg && clientArg !== "cursor") {
-      console.error(`Unknown --client=${clientArg}. Valid: cursor`);
+    if (clientArg && !(valid as readonly string[]).includes(clientArg)) {
+      console.error(`Unknown --client=${clientArg}. Valid: ${valid.join(", ")}`);
       process.exit(1);
     }
     const result = runInit(resolve("."), { client: clientArg as InitClient | undefined });
@@ -95,7 +113,72 @@ switch (command) {
     for (const f of result.written) console.log(`  wrote   ${f}`);
     for (const f of result.merged) console.log(`  merged  ${f}`);
     for (const f of result.skipped) console.log(`  skipped ${f} (already exists)`);
-    console.log("\nRestart Cursor and check Settings → MCP that 'composto' is green.");
+    console.log("\nRestart your AI client and check that 'composto' MCP is green.");
+    console.log(
+      "Composto collects local-only hook telemetry to help you monitor agent behavior. " +
+        "Disable with `composto stats --disable` at any time.",
+    );
+    break;
+  }
+  case "hook": {
+    // composto hook <platform> <event> — reads PreToolUse/BeforeTool JSON from
+    // stdin, emits the platform's hook response envelope as JSON on stdout.
+    // On ANY error → print '{"hookSpecificOutput":{}}' (universal passthrough).
+    // Hooks MUST NEVER exit non-zero — that can hang the agent.
+    //
+    // After emitting the envelope, best-effort-writes one row to
+    // hook_invocations for `composto stats`. Telemetry failures never
+    // propagate.
+    const hookStart = Date.now();
+    try {
+      const platform = args[1] as Platform | undefined;
+      const event = args[2] as HookEvent | undefined;
+      if (!platform || !event) {
+        console.log('{"hookSpecificOutput":{}}');
+        break;
+      }
+      const stdin = await readStdin();
+      const result = await runHookDispatch({
+        platform,
+        event,
+        stdin,
+        cwd: process.cwd(),
+      });
+      console.log(JSON.stringify(result.envelope));
+
+      // Telemetry — best-effort. Never throws.
+      try {
+        const dbPath = join(process.cwd(), ".composto", "memory.db");
+        const db = openDatabase(dbPath);
+        try {
+          runMigrations(db);
+          recordInvocation(db, {
+            timestamp: Math.floor(Date.now() / 1000),
+            platform,
+            event,
+            filePath: result.metadata.filePath,
+            verdict: result.metadata.verdict,
+            score: result.metadata.score,
+            confidence: result.metadata.confidence,
+            latencyMs: Date.now() - hookStart,
+            cacheHit: false,
+          });
+        } finally {
+          db.close();
+        }
+      } catch {
+        /* telemetry best-effort */
+      }
+    } catch {
+      console.log('{"hookSpecificOutput":{}}');
+    }
+    break;
+  }
+  case "stats": {
+    const json = args.includes("--json");
+    const disable = args.includes("--disable");
+    const res = runStats({ cwd: resolve("."), json, disable });
+    console.log(res.output);
     break;
   }
   case "version":
@@ -114,7 +197,10 @@ switch (command) {
     console.log("  impact <file>                         Show historical blast radius for a file");
     console.log("  index [--since=YYYY-MM-DD]            Build or refresh the memory index (--since bounds work for huge repos)");
     console.log("  index --status                        Show memory index diagnostics");
-    console.log("  init [--client=cursor]                Configure Composto MCP for an AI client");
+    console.log("  init [--client=<name>]                Configure Composto MCP + hooks for an AI client");
+    console.log("                                          (clients: cursor, claude-code, gemini-cli)");
+    console.log("  hook <platform> <event>               Run BlastRadius hook (reads tool JSON from stdin)");
+    console.log("  stats [--json] [--disable]            Show hook telemetry (last 7d); --disable opts out");
     console.log("  version                               Show version");
     break;
 }

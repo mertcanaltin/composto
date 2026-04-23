@@ -4,13 +4,32 @@
 
 import type { DB } from "./db.js";
 
-const CURRENT_VERSION = 2;
+const CURRENT_VERSION = 3;
 
 // v2: covering index for the join in deriveFixLinks short_followup_fix
 // (file_touches.file_path → commit_sha). Without this, derivation on
 // large repos (10K+ commits) takes 10+ seconds; with it, ~1-2 seconds.
 const V2_SQL = `
 CREATE INDEX IF NOT EXISTS idx_ft_file_commit ON file_touches(file_path, commit_sha);
+`;
+
+// v3: hook_invocations telemetry log (Phase 1 P1.4). Records every hook
+// firing so `composto stats` can surface fire-rate, verdict mix, latency.
+// Local-only; never leaves the project .composto/memory.db.
+const V3_SQL = `
+CREATE TABLE IF NOT EXISTS hook_invocations (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp       INTEGER NOT NULL,
+  platform        TEXT NOT NULL,
+  event           TEXT NOT NULL,
+  file_path       TEXT,
+  verdict         TEXT,
+  score           REAL,
+  confidence      REAL,
+  latency_ms      INTEGER NOT NULL,
+  cache_hit       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_hi_timestamp ON hook_invocations(timestamp);
 `;
 
 const V1_SQL = `
@@ -104,6 +123,7 @@ export function runMigrations(db: DB): void {
   try {
     if (current < 1) db.exec(V1_SQL);
     if (current < 2) db.exec(V2_SQL);
+    if (current < 3) db.exec(V3_SQL);
     db.pragma(`user_version = ${CURRENT_VERSION}`);
     db.exec("COMMIT");
   } catch (err) {

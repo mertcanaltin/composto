@@ -89,6 +89,41 @@ This writes `.cursor/mcp.json` (project-local MCP registration) and `.cursor/rul
 
 Without the rule, hit rate is ~30-50%; with it, ~85-95%. The rule template is embedded in [`src/cli/init.ts`](src/cli/init.ts) (`CURSOR_RULES_MDC`) — open the generated `.cursor/rules/composto.mdc` to customize per-project.
 
+#### Hook-enforced injection (v0.6.0+)
+
+Instead of asking the agent to remember to call `composto_blastradius`, wire a hook so it gets consulted **automatically** before every Edit / Write / MultiEdit. The agent receives a `<composto_blastradius>` context block in-line when verdict is `medium` or `high` — you don't do anything, the warning just shows up where it's needed.
+
+```bash
+cd your-project
+composto init --client=claude-code    # or cursor, or gemini-cli
+```
+
+This writes:
+- The platform's MCP config (same as before)
+- A **`PreToolUse` hook** (Claude Code / Gemini CLI) that invokes `composto hook <platform> pretooluse` on every file-targeting tool call. The hook extracts the target file, runs `composto_blastradius`, and injects the verdict as `additionalContext`. Passthrough on `low` verdict — no noise.
+- For Cursor: a `.cursor/hooks.json` entry that **denies** the tool call on `verdict: high` (Cursor's `additional_context` is dropped per [forum #155689](https://forum.cursor.com/t/...), so hybrid strategy — the existing `.cursor/rules/composto.mdc` rule carries `medium`/`low`, the hook only interrupts on `high`).
+
+Existing settings are merged, never overwritten. Re-running `composto init` is idempotent — no duplicate hook entries.
+
+**Observe what's happening:**
+
+```bash
+composto stats            # hook invocations, verdict distribution, p50/p95 latency
+composto stats --json     # machine-readable
+composto stats --disable  # opt out (writes .composto/telemetry-disabled marker)
+```
+
+Telemetry is **local-only** — writes to `.composto/memory.db` in your repo, nothing leaves your machine. No user ID, no cloud sync, no account.
+
+**Platform matrix:**
+
+| Platform | MCP | Hook | Strategy |
+|---|:---:|:---:|---|
+| Claude Code | ✅ | ✅ `PreToolUse` | `additionalContext` on medium\|high\|unknown, passthrough on low |
+| Cursor | ✅ | ✅ `preToolUse` | Deny-on-high via `permissionDecision`; medium/low via `.mdc` rule |
+| Gemini CLI | ✅ | ✅ `BeforeTool` | `additionalContext` on medium\|high\|unknown |
+| Claude Desktop | ✅ | — | MCP-only (no hook API yet) |
+
 ---
 
 ## How It Works

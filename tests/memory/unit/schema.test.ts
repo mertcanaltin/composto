@@ -14,7 +14,7 @@ describe("memory schema migrations", () => {
     runMigrations(db);
 
     const userVersion = db.pragma("user_version", { simple: true }) as number;
-    expect(userVersion).toBe(2);
+    expect(userVersion).toBe(3);
 
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
@@ -45,7 +45,7 @@ describe("memory schema migrations", () => {
     const db = openDatabase(dbPath);
     runMigrations(db);
     runMigrations(db);
-    expect(db.pragma("user_version", { simple: true })).toBe(2);
+    expect(db.pragma("user_version", { simple: true })).toBe(3);
 
     db.close();
     rmSync(dir, { recursive: true, force: true });
@@ -63,7 +63,7 @@ describe("memory schema migrations", () => {
     db.exec("DROP INDEX IF EXISTS idx_ft_file_commit");
     runMigrations(db);
 
-    expect(db.pragma("user_version", { simple: true })).toBe(2);
+    expect(db.pragma("user_version", { simple: true })).toBe(3);
     const indices = db
       .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_ft_file_commit'")
       .all();
