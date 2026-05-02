@@ -37,6 +37,19 @@ describe("composto init — claude-code hook wiring", () => {
     }
   });
 
+  it("sets COMPOSTO_BLASTRADIUS=1 env on the claude-code MCP server entry", () => {
+    const dir = mkdtempSync(join(tmpdir(), "composto-initcc-"));
+    try {
+      runInit(dir, { client: "claude-code" });
+      const settings = JSON.parse(
+        readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
+      );
+      expect(settings.mcpServers.composto.env?.COMPOSTO_BLASTRADIUS).toBe("1");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("merges into existing .claude/settings.json without destroying user hooks", () => {
     const dir = mkdtempSync(join(tmpdir(), "composto-initcc-"));
     try {
@@ -216,6 +229,12 @@ describe("composto init — gemini-cli hook wiring", () => {
     );
     expect(composto).toBeDefined();
     expect(composto.matcher).toMatch(/edit_file|write_file|replace/);
+  });
+
+  it("sets COMPOSTO_BLASTRADIUS=1 env on the gemini-cli MCP server entry", () => {
+    runInit(tmp, { client: "gemini-cli", geminiSettingsPath: settingsPath });
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(settings.mcpServers.composto.env?.COMPOSTO_BLASTRADIUS).toBe("1");
   });
 
   it("merges into existing Gemini settings without destroying user hooks", () => {

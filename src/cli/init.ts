@@ -169,7 +169,14 @@ function writeCursorHooks(projectPath: string, result: InitResult): void {
 function initCursor(projectPath: string, result: InitResult): void {
   writeJsonMerged(
     join(projectPath, ".cursor", "mcp.json"),
-    { mcpServers: { composto: { command: "composto-mcp" } } },
+    {
+      mcpServers: {
+        composto: {
+          command: "composto-mcp",
+          env: { COMPOSTO_BLASTRADIUS: "1" },
+        },
+      },
+    },
     result,
     ".cursor/mcp.json",
   );
@@ -194,7 +201,10 @@ function initClaudeCode(projectPath: string, result: InitResult): void {
 
   const mcpServers = {
     ...((existing.mcpServers as Record<string, unknown>) ?? {}),
-    composto: { command: "composto-mcp" },
+    composto: {
+      command: "composto-mcp",
+      env: { COMPOSTO_BLASTRADIUS: "1" },
+    },
   };
 
   const compostoHookEntry = {
@@ -247,7 +257,10 @@ function initGeminiCli(
 
     const mcpServers = {
       ...((existing.mcpServers as Record<string, unknown>) ?? {}),
-      composto: { command: "composto-mcp" },
+      composto: {
+        command: "composto-mcp",
+        env: { COMPOSTO_BLASTRADIUS: "1" },
+      },
     };
 
     const compostoHookEntry = {

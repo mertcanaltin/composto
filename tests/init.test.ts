@@ -23,6 +23,31 @@ describe("composto init — Cursor configuration", () => {
     expect(cfg.mcpServers.composto.command).toBe("composto-mcp");
   });
 
+  it("sets COMPOSTO_BLASTRADIUS=1 env on the cursor MCP server entry", () => {
+    runInit(tmp, { client: "cursor" });
+    const cfg = JSON.parse(
+      readFileSync(join(tmp, ".cursor", "mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers.composto.env?.COMPOSTO_BLASTRADIUS).toBe("1");
+  });
+
+  it("upgrades a legacy mcp.json (composto entry without env) by adding the env block", () => {
+    mkdirSync(join(tmp, ".cursor"), { recursive: true });
+    writeFileSync(
+      join(tmp, ".cursor", "mcp.json"),
+      JSON.stringify(
+        { mcpServers: { composto: { command: "composto-mcp" } } },
+        null,
+        2,
+      ),
+    );
+    runInit(tmp, { client: "cursor" });
+    const cfg = JSON.parse(
+      readFileSync(join(tmp, ".cursor", "mcp.json"), "utf-8"),
+    );
+    expect(cfg.mcpServers.composto.env?.COMPOSTO_BLASTRADIUS).toBe("1");
+  });
+
   it("creates .cursor/rules/composto.mdc when none exists", () => {
     runInit(tmp, { client: "cursor" });
     const rulePath = join(tmp, ".cursor", "rules", "composto.mdc");
