@@ -108,7 +108,13 @@ switch (command) {
       console.error(`Unknown --client=${clientArg}. Valid: ${valid.join(", ")}`);
       process.exit(1);
     }
-    const result = runInit(resolve("."), { client: clientArg as InitClient | undefined });
+    const withRules = args.includes("--with-rules");
+    const withMcp = args.includes("--with-mcp");
+    const result = runInit(resolve("."), {
+      client: clientArg as InitClient | undefined,
+      withRules,
+      withMcp,
+    });
     console.log(`composto init — configured for ${result.client}\n`);
     for (const f of result.written) console.log(`  wrote   ${f}`);
     for (const f of result.merged) console.log(`  merged  ${f}`);
@@ -197,8 +203,10 @@ switch (command) {
     console.log("  impact <file>                         Show historical blast radius for a file");
     console.log("  index [--since=YYYY-MM-DD]            Build or refresh the memory index (--since bounds work for huge repos)");
     console.log("  index --status                        Show memory index diagnostics");
-    console.log("  init [--client=<name>]                Configure Composto MCP + hooks for an AI client");
-    console.log("                                          (clients: cursor, claude-code, gemini-cli)");
+    console.log("  init [--client=<name>] [--with-mcp] [--with-rules]");
+    console.log("                                        Lean Hook init (clients: cursor, claude-code, gemini-cli)");
+    console.log("                                          --with-mcp   register the composto MCP server (5 tools)");
+    console.log("                                          --with-rules write .cursor/rules/composto.mdc (cursor only)");
     console.log("  hook <platform> <event>               Run BlastRadius hook (reads tool JSON from stdin)");
     console.log("  stats [--json] [--disable]            Show hook telemetry (last 7d); --disable opts out");
     console.log("  version                               Show version");

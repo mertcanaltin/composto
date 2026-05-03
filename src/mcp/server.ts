@@ -28,7 +28,7 @@ const server = new McpServer({
 // Tool 1: composto_ir — Generate IR for a file
 server.tool(
   "composto_ir",
-  "Generate compressed IR (Intermediate Representation) for a source file. Uses AST parsing to keep function signatures, control flow, and dependencies while dropping 89% of noise tokens. Use this instead of reading raw files when you need to understand what a file does.",
+  "Compressed AST-based IR for a file. ~89% fewer tokens than raw read.",
   {
     file: z.string().describe("Path to the source file"),
     layer: z.enum(["L0", "L1", "L2", "L3"]).default("L1").describe("L0=structure only, L1=full IR (default), L2=delta context, L3=raw source"),
@@ -64,7 +64,7 @@ server.tool(
 // Tool 2: composto_benchmark — Benchmark token savings
 server.tool(
   "composto_benchmark",
-  "Benchmark how much Composto saves across a directory. Shows per-file token savings comparing raw code vs compressed IR.",
+  "Per-file token-savings benchmark across a directory.",
   {
     path: z.string().default(".").describe("Directory to benchmark"),
   },
@@ -97,7 +97,7 @@ server.tool(
 // Tool 3: composto_context — Smart context within token budget
 server.tool(
   "composto_context",
-  "Pack maximum code context into a token budget. When target symbol is provided, its file is included as raw code (L3) while surrounding files get compressed IR. Perfect for 'fix this bug in X' or 'why does X return wrong value' — LLM sees exact code of target plus compressed context. Without target, hotspot files get L1, rest get L0.",
+  "Pack code into a token budget; target raw, neighbors as IR.",
   {
     path: z.string().default(".").describe("Directory to pack"),
     budget: z.number().default(4000).describe("Maximum tokens to use"),
@@ -161,7 +161,7 @@ server.tool(
 // Tool 4: composto_scan — Scan for security issues
 server.tool(
   "composto_scan",
-  "Scan codebase for security issues (hardcoded secrets, API keys) and debug artifacts (console.log). Zero token cost — pure local analysis.",
+  "Scan for hardcoded secrets and debug artifacts. Local-only.",
   {
     path: z.string().default(".").describe("Directory to scan"),
   },
@@ -195,7 +195,7 @@ server.tool(
 // Tool 5: composto_blastradius — Predict historical blast radius
 server.tool(
   "composto_blastradius",
-  "Predict the historical blast radius of a code change before applying it. Returns a risk verdict (low/medium/high/unknown), confidence, and the git-derived signals behind it (revert history, hotspots, fix ratio, coverage decline, ownership churn). Call BEFORE proposing significant edits to files with non-trivial history. Honest about uncertainty — returns \"unknown\" when confidence is low instead of guessing. Degraded modes (empty repo, shallow clone, indexing) are explicit in the `status` field.",
+  "Risk verdict (low/medium/high/unknown) for editing a file, from git history.",
   {
     file: z.string().describe("Repo-relative path of the file the agent intends to modify."),
     intent: z.enum(["refactor", "bugfix", "feature", "test", "docs", "unknown"]).default("unknown").optional(),

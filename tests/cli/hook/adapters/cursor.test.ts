@@ -55,7 +55,7 @@ describe("cursor preToolUse adapter — hybrid deny-on-high", () => {
     expect(result.envelope.permissionDecisionReason).toMatch(/verdict:\s*high/);
   });
 
-  it("passes through on verdict=medium (agent still has .mdc-rule path to call the MCP tool)", async () => {
+  it("passes through silently on verdict=medium (Lean Hook v0.7.0: signal in telemetry only, --with-mcp opt-in for chat surface)", async () => {
     const stdin = JSON.stringify({
       tool_name: "Edit",
       tool_input: { file_path: "src/auth.ts", old_string: "x", new_string: "y" },

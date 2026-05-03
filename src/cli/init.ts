@@ -11,6 +11,24 @@ export interface InitOptions {
    * Used by tests to redirect writes away from the real user home.
    */
   geminiSettingsPath?: string;
+  /**
+   * Lean Hook v0.7.0: rules file is opt-in. The agent learns Composto
+   * exists from the hook envelope itself when there's a real signal,
+   * so the always-on `composto.mdc` rules file (1940 chars × every turn)
+   * is no longer the default. Pass `withRules: true` to restore the old
+   * verbose teaching behavior.
+   */
+  withRules?: boolean;
+  /**
+   * Lean Hook v0.7.0: MCP server registration is opt-in. The hook
+   * already exposes BlastRadius via the preToolUse envelope without
+   * the agent needing tool-call permission. Registering the MCP
+   * server adds 5 tool schemas (~300 tokens) to every conversation
+   * and historically prompted the agent to call tools on every edit.
+   * Pass `withMcp: true` to register the composto MCP server for
+   * direct agent queries (composto_ir/_context/_scan/_blastradius).
+   */
+  withMcp?: boolean;
 }
 
 export interface InitResult {
@@ -166,26 +184,34 @@ function writeCursorHooks(projectPath: string, result: InitResult): void {
   else result.written.push(relPath);
 }
 
-function initCursor(projectPath: string, result: InitResult): void {
-  writeJsonMerged(
-    join(projectPath, ".cursor", "mcp.json"),
-    {
-      mcpServers: {
-        composto: {
-          command: "composto-mcp",
-          env: { COMPOSTO_BLASTRADIUS: "1" },
+function initCursor(
+  projectPath: string,
+  result: InitResult,
+  options: InitOptions,
+): void {
+  if (options.withMcp) {
+    writeJsonMerged(
+      join(projectPath, ".cursor", "mcp.json"),
+      {
+        mcpServers: {
+          composto: {
+            command: "composto-mcp",
+            env: { COMPOSTO_BLASTRADIUS: "1" },
+          },
         },
       },
-    },
-    result,
-    ".cursor/mcp.json",
-  );
-  writeFileSkipIfExists(
-    join(projectPath, ".cursor", "rules", "composto.mdc"),
-    CURSOR_RULES_MDC,
-    result,
-    ".cursor/rules/composto.mdc",
-  );
+      result,
+      ".cursor/mcp.json",
+    );
+  }
+  if (options.withRules) {
+    writeFileSkipIfExists(
+      join(projectPath, ".cursor", "rules", "composto.mdc"),
+      CURSOR_RULES_MDC,
+      result,
+      ".cursor/rules/composto.mdc",
+    );
+  }
   writeCursorHooks(projectPath, result);
 }
 
@@ -193,19 +219,26 @@ function initCursor(projectPath: string, result: InitResult): void {
 // Claude Code
 // ---------------------------------------------------------------------------
 
-function initClaudeCode(projectPath: string, result: InitResult): void {
+function initClaudeCode(
+  projectPath: string,
+  result: InitResult,
+  options: InitOptions,
+): void {
   const settingsPath = join(projectPath, ".claude", "settings.json");
   const relPath = ".claude/settings.json";
   const existed = existsSync(settingsPath);
   const existing = readJsonIfExists(settingsPath);
 
-  const mcpServers = {
-    ...((existing.mcpServers as Record<string, unknown>) ?? {}),
-    composto: {
-      command: "composto-mcp",
-      env: { COMPOSTO_BLASTRADIUS: "1" },
-    },
-  };
+  const baseExistingMcp = (existing.mcpServers as Record<string, unknown>) ?? {};
+  const mcpServers = options.withMcp
+    ? {
+        ...baseExistingMcp,
+        composto: {
+          command: "composto-mcp",
+          env: { COMPOSTO_BLASTRADIUS: "1" },
+        },
+      }
+    : baseExistingMcp;
 
   const compostoHookEntry = {
     matcher: "Edit|Write|MultiEdit",
@@ -222,11 +255,15 @@ function initClaudeCode(projectPath: string, result: InitResult): void {
       "",
   );
 
-  const merged = {
+  const merged: Record<string, unknown> = {
     ...existing,
-    mcpServers,
     hooks: { ...existingHooks, PreToolUse: preToolUse },
   };
+  // Only emit mcpServers if there's actually an entry to write — avoids
+  // creating an empty mcpServers: {} on greenfield Lean Hook installs.
+  if (Object.keys(mcpServers).length > 0) {
+    merged.mcpServers = mcpServers;
+  }
   ensureDir(settingsPath);
   writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n");
   if (existed) result.merged.push(relPath);
@@ -255,13 +292,16 @@ function initGeminiCli(
     const existed = existsSync(settingsPath);
     const existing = readJsonIfExists(settingsPath);
 
-    const mcpServers = {
-      ...((existing.mcpServers as Record<string, unknown>) ?? {}),
-      composto: {
-        command: "composto-mcp",
-        env: { COMPOSTO_BLASTRADIUS: "1" },
-      },
-    };
+    const baseExistingMcp = (existing.mcpServers as Record<string, unknown>) ?? {};
+    const mcpServers = options.withMcp
+      ? {
+          ...baseExistingMcp,
+          composto: {
+            command: "composto-mcp",
+            env: { COMPOSTO_BLASTRADIUS: "1" },
+          },
+        }
+      : baseExistingMcp;
 
     const compostoHookEntry = {
       matcher: "edit_file|write_file|replace",
@@ -278,11 +318,13 @@ function initGeminiCli(
         "",
     );
 
-    const merged = {
+    const merged: Record<string, unknown> = {
       ...existing,
-      mcpServers,
       hooks: { ...existingHooks, BeforeTool: beforeTool },
     };
+    if (Object.keys(mcpServers).length > 0) {
+      merged.mcpServers = mcpServers;
+    }
     ensureDir(settingsPath);
     writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n");
     if (existed) result.merged.push(relPath);
@@ -296,8 +338,8 @@ function initGeminiCli(
 export function runInit(projectPath: string, options: InitOptions): InitResult {
   const client: InitClient = options.client ?? "cursor";
   const result: InitResult = { client, written: [], skipped: [], merged: [] };
-  if (client === "claude-code") initClaudeCode(projectPath, result);
+  if (client === "claude-code") initClaudeCode(projectPath, result, options);
   else if (client === "gemini-cli") initGeminiCli(projectPath, result, options);
-  else initCursor(projectPath, result);
+  else initCursor(projectPath, result, options);
   return result;
 }

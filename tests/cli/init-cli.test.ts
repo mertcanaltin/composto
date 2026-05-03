@@ -12,7 +12,7 @@ describe("composto init CLI — shell surface exposes all three clients", () => 
   it("accepts --client=claude-code and writes .claude/settings.json", () => {
     const dir = mkdtempSync(join(tmpdir(), "composto-initcli-cc-"));
     try {
-      const out = execSync(`node ${CLI} init --client=claude-code`, {
+      const out = execSync(`node ${CLI} init --client=claude-code --with-mcp`, {
         cwd: dir,
         encoding: "utf-8",
       });

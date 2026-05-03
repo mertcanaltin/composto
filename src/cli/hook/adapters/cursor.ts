@@ -2,9 +2,13 @@
 // Cursor drops additional_context silently (forum #155689), so this adapter
 // uses the one channel that IS user-visible: permissionDecision. We only
 // deny on verdict === "high" (justifies the interrupt). medium/low/unknown
-// fall back to the .cursor/rules/composto.mdc rule that `composto init`
-// writes — that keeps the agent calling composto_blastradius proactively
-// without user-visible interrupts.
+// pass through silently. Lean Hook v0.7.0 deliberately keeps the chat
+// uninterrupted on those verdicts; the signal is preserved in
+// .composto/memory.db's hook_invocations table and queryable via
+// `composto stats` and `composto impact <file>`. Users who want medium
+// signals surfaced in chat can opt in with
+// `composto init --client=cursor --with-mcp` and have the agent call
+// composto_blastradius directly.
 //
 // Returns { envelope, metadata } so the CLI layer has full visibility into
 // the verdict/score/confidence for telemetry, even when the user-visible

@@ -15,15 +15,15 @@ import { runInit } from "../../src/cli/init.js";
 // Claude Code
 // ----------------------------------------------------------------------------
 describe("composto init — claude-code hook wiring", () => {
-  it("writes .claude/settings.json with MCP + PreToolUse hook entry on fresh project", () => {
+  it("writes .claude/settings.json with PreToolUse hook entry but NO mcpServers by default (Lean Hook v0.7.0)", () => {
     const dir = mkdtempSync(join(tmpdir(), "composto-initcc-"));
     try {
       runInit(dir, { client: "claude-code" });
       const settings = JSON.parse(
         readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
       );
-      // MCP server registered
-      expect(settings.mcpServers?.composto?.command).toBe("composto-mcp");
+      // Default: NO MCP server registered
+      expect(settings.mcpServers?.composto).toBeUndefined();
       // PreToolUse hook entry for Edit|Write|MultiEdit
       const pre = settings.hooks?.PreToolUse;
       expect(Array.isArray(pre)).toBe(true);
@@ -37,10 +37,23 @@ describe("composto init — claude-code hook wiring", () => {
     }
   });
 
-  it("sets COMPOSTO_BLASTRADIUS=1 env on the claude-code MCP server entry", () => {
+  it("registers MCP server on claude-code when withMcp: true", () => {
     const dir = mkdtempSync(join(tmpdir(), "composto-initcc-"));
     try {
-      runInit(dir, { client: "claude-code" });
+      runInit(dir, { client: "claude-code", withMcp: true });
+      const settings = JSON.parse(
+        readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
+      );
+      expect(settings.mcpServers?.composto?.command).toBe("composto-mcp");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("sets COMPOSTO_BLASTRADIUS=1 env on the claude-code MCP server entry when withMcp: true", () => {
+    const dir = mkdtempSync(join(tmpdir(), "composto-initcc-"));
+    try {
+      runInit(dir, { client: "claude-code", withMcp: true });
       const settings = JSON.parse(
         readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
       );
@@ -126,12 +139,12 @@ describe("composto init — cursor hook wiring", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("writes .cursor/hooks.json alongside mcp.json and rules on fresh project", () => {
+  it("writes .cursor/hooks.json on fresh project; mcp.json + rules are opt-in", () => {
     runInit(tmp, { client: "cursor" });
 
-    // Existing behavior preserved
-    expect(existsSync(join(tmp, ".cursor", "mcp.json"))).toBe(true);
-    expect(existsSync(join(tmp, ".cursor", "rules", "composto.mdc"))).toBe(true);
+    // Lean Hook v0.7.0: hooks-only by default
+    expect(existsSync(join(tmp, ".cursor", "mcp.json"))).toBe(false);
+    expect(existsSync(join(tmp, ".cursor", "rules", "composto.mdc"))).toBe(false);
 
     // New: hooks.json
     const hooksPath = join(tmp, ".cursor", "hooks.json");
@@ -217,11 +230,11 @@ describe("composto init — gemini-cli hook wiring", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("writes Gemini CLI settings with MCP + BeforeTool hook entry on fresh file", () => {
+  it("writes Gemini CLI settings with BeforeTool hook entry but NO mcpServers by default (Lean Hook v0.7.0)", () => {
     runInit(tmp, { client: "gemini-cli", geminiSettingsPath: settingsPath });
     expect(existsSync(settingsPath)).toBe(true);
     const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-    expect(settings.mcpServers?.composto?.command).toBe("composto-mcp");
+    expect(settings.mcpServers?.composto).toBeUndefined();
     const before = settings.hooks?.BeforeTool;
     expect(Array.isArray(before)).toBe(true);
     const composto = before.find((h: any) =>
@@ -231,8 +244,22 @@ describe("composto init — gemini-cli hook wiring", () => {
     expect(composto.matcher).toMatch(/edit_file|write_file|replace/);
   });
 
-  it("sets COMPOSTO_BLASTRADIUS=1 env on the gemini-cli MCP server entry", () => {
-    runInit(tmp, { client: "gemini-cli", geminiSettingsPath: settingsPath });
+  it("registers MCP server on gemini-cli when withMcp: true", () => {
+    runInit(tmp, {
+      client: "gemini-cli",
+      geminiSettingsPath: settingsPath,
+      withMcp: true,
+    });
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(settings.mcpServers?.composto?.command).toBe("composto-mcp");
+  });
+
+  it("sets COMPOSTO_BLASTRADIUS=1 env on the gemini-cli MCP server entry when withMcp: true", () => {
+    runInit(tmp, {
+      client: "gemini-cli",
+      geminiSettingsPath: settingsPath,
+      withMcp: true,
+    });
     const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(settings.mcpServers.composto.env?.COMPOSTO_BLASTRADIUS).toBe("1");
   });
