@@ -16,6 +16,18 @@ describe("astWalkIR", () => {
       expect(ir).toContain("USE:");
     });
 
+    it("extracts module path from imports longer than 80 chars", async () => {
+      // Regression: long import lines were truncated before the module
+      // specifier could be extracted, cutting the closing quote and leaking
+      // raw "import { ... } from \"...\"" text into the IR.
+      const code =
+        'import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";';
+      const ir = await astWalkIR(code, "server.ts");
+      expect(ir).toContain("@modelcontextprotocol/sdk/server/stdio.js");
+      expect(ir).not.toContain("import {");
+      expect(ir).not.toContain("...");
+    });
+
     it("captures exported function declarations", async () => {
       const code = "export function processData(input: string): string {\n  return input.trim();\n}";
       const ir = await astWalkIR(code, "utils.ts");

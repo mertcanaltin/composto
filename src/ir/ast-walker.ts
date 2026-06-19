@@ -287,8 +287,13 @@ function emitTier1(node: SyntaxNode): string | null {
 
   switch (node.type) {
     case "import_statement": {
-      const text = collapseText(node.text, 80);
-      return `USE:${text}`;
+      // Prefer the module specifier from the `source` field — extracting it
+      // here keeps long imports intact. Collapsing the whole statement first
+      // truncates lines >80 chars, cutting the closing quote so the module
+      // path can no longer be recovered downstream.
+      const source = node.childForFieldName("source")?.text;
+      if (source) return `USE:${source.slice(1, -1)}`;
+      return `USE:${collapseText(node.text, 80)}`;
     }
 
     case "function_declaration": {
