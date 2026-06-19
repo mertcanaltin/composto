@@ -1,12 +1,10 @@
 #!/usr/bin/env tsx
-// Find the best co-change FLOOR offline. Run the time-travel backtest ONCE per
-// repo with COMPOSTO_COCHANGE_FLOOR=1 (gate disabled, so the recorded `score`
-// is the raw base score), then sweep the FLOOR offline by applying the
-// multiplicative gate final = base * (FLOOR + (1-FLOOR)*strength), where
-// strength = min(1, cochange_degree / 10) — the same math as production's
-// computeScoreAndConfidence. Flag rule mirrors production: conf>=0.3 AND
-// final>=0.3. Goal: a FLOOR that lifts precision to >=0.60 while recall stays
-// >=0.40 on BOTH repos.
+// Run the time-travel backtest ONCE per repo with COMPOSTO_COCHANGE_FLOOR=1
+// (gate disabled → recorded `score` is the raw base), then OFFLINE:
+//   - compare discrimination (AUC) of co-change v1 vs v2
+//   - sweep the multiplicative FLOOR for each variant:
+//       final = base * (FLOOR + (1-FLOOR) * strength),  strength = min(1, deg/SAT)
+//     flag = conf>=0.3 AND final>=0.3. Goal: P>=0.60 AND R>=0.40 on both repos.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,19 +13,26 @@ import { runTimeTravelBacktest } from "./backtest/time-travel.js";
 
 const CONF_GATE = 0.3;
 const SCORE_GATE = 0.3;
-const SATURATION_DEGREE = 10;
-const FLOORS = [1.0, 0.7, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0];
+const FLOORS = [1.0, 0.5, 0.4, 0.3, 0.2, 0.1, 0.0];
 
-type Sample = { score: number; confidence: number; positive: boolean; cochange: number };
+type Sample = { score: number; confidence: number; positive: boolean; cochange: number; cochange2: number };
 
-function pr(samples: Sample[], floor: number) {
+function auc(samples: Sample[], pick: (s: Sample) => number): number {
+  const pos = samples.filter((s) => s.positive).map(pick);
+  const neg = samples.filter((s) => !s.positive).map(pick);
+  if (pos.length === 0 || neg.length === 0) return 0.5;
+  let win = 0;
+  for (const p of pos) for (const n of neg) win += p > n ? 1 : p === n ? 0.5 : 0;
+  return win / (pos.length * neg.length);
+}
+
+function pr(samples: Sample[], floor: number, deg: (s: Sample) => number, sat: number) {
   const pos = samples.filter((s) => s.positive).length;
   let tp = 0, fp = 0;
   for (const s of samples) {
-    const strength = Math.min(1, s.cochange / SATURATION_DEGREE);
+    const strength = Math.min(1, deg(s) / sat);
     const final = s.score * (floor + (1 - floor) * strength);
-    const flagged = s.confidence >= CONF_GATE && final >= SCORE_GATE;
-    if (!flagged) continue;
+    if (!(s.confidence >= CONF_GATE && final >= SCORE_GATE)) continue;
     if (s.positive) tp++; else fp++;
   }
   const precision = tp + fp === 0 ? 0 : tp / (tp + fp);
@@ -35,10 +40,19 @@ function pr(samples: Sample[], floor: number) {
   return { precision, recall, tp, fp };
 }
 
+function table(label: string, samples: Sample[], deg: (s: Sample) => number, sat: number) {
+  console.log(`  -- ${label} (saturation=${sat}) --`);
+  for (const f of FLOORS) {
+    const r = pr(samples, f, deg, sat);
+    const gate = r.precision >= 0.6 && r.recall >= 0.4 ? " PASS" : "";
+    const tag = f === 1.0 ? " (baseline)" : "";
+    console.log(`     FLOOR ${f.toFixed(2)}  P=${r.precision.toFixed(3)} R=${r.recall.toFixed(3)} tp=${String(r.tp).padStart(3)} fp=${String(r.fp).padStart(3)}${gate}${tag}`);
+  }
+}
+
 async function sweepRepo(repoPath: string, maxEvents: number) {
   const workDir = mkdtempSync(join(tmpdir(), "composto-sweep-"));
   try {
-    // Gate disabled during collection so `score` is the raw base score.
     process.env.COMPOSTO_COCHANGE_FLOOR = "1";
     const res = await runTimeTravelBacktest({
       repoPath, workDir, maxEvents, excludeSignals: [],
@@ -46,13 +60,10 @@ async function sweepRepo(repoPath: string, maxEvents: number) {
     });
     const samples = (res.scored_samples ?? []) as Sample[];
     console.log(`\n=== ${repoPath}  (events=${res.events_evaluated}, samples=${samples.length}) ===`);
-    console.log("  FLOOR  precision  recall   tp   fp   gate(P>=.6,R>=.4)");
-    for (const f of FLOORS) {
-      const r = pr(samples, f);
-      const tag = f === 1.0 ? " (baseline)" : "";
-      const gate = r.precision >= 0.6 && r.recall >= 0.4 ? " PASS" : "";
-      console.log(`  ${f.toFixed(2)}   ${r.precision.toFixed(3)}     ${r.recall.toFixed(3)}   ${String(r.tp).padStart(3)}  ${String(r.fp).padStart(3)}  ${gate}${tag}`);
-    }
+    console.log(`  AUC cochange v1 = ${auc(samples, (s) => s.cochange).toFixed(3)}`);
+    console.log(`  AUC cochange v2 = ${auc(samples, (s) => s.cochange2).toFixed(3)}  (stable >=2 coupling)`);
+    table("v1 raw degree", samples, (s) => s.cochange, 10);
+    table("v2 stable coupling", samples, (s) => s.cochange2, 5);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

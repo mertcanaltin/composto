@@ -108,14 +108,10 @@ export interface TimeTravelResult {
   // Every scored sample (positive = fix-touched file, negative = control
   // file), with its raw score/confidence. Lets a caller sweep the firing
   // threshold offline from a single run instead of re-running per threshold.
-  scored_samples?: Array<{ score: number; confidence: number; positive: boolean; cochange: number }>;
+  scored_samples?: Array<{ score: number; confidence: number; positive: boolean; cochange: number; cochange2: number }>;
 }
 
-// Prototype co-change signal: how many DISTINCT other files this file has
-// co-occurred with in past FIX commits (is_fix=1) at the pre-break snapshot.
-// Hypothesis: fix-coupling hubs are likelier to be in a future fix's blast
-// radius, and this DISCRIMINATES them from merely-recently-active files in a
-// way the per-file activity signals cannot.
+// v1 co-change: DISTINCT files co-touched with the target in past FIX commits.
 function cochangeDegree(db: DB, filePath: string): number {
   const r = db
     .prepare(`
@@ -124,6 +120,27 @@ function cochangeDegree(db: DB, filePath: string): number {
       JOIN commits c ON c.sha = ft1.commit_sha AND c.is_fix = 1
       JOIN file_touches ft2 ON ft2.commit_sha = ft1.commit_sha AND ft2.file_path != ft1.file_path
       WHERE ft1.file_path = ?
+    `)
+    .get(filePath) as { deg: number } | undefined;
+  return r?.deg ?? 0;
+}
+
+// v2 co-change: STABLE coupling — distinct partners co-fixed with the target in
+// >= 2 fix commits. Filters one-off co-occurrences (noise) and the chronically
+// churning files that co-touch everything once, which should discriminate real
+// coupled hubs from merely-busy files better than v1.
+function cochangeDegree2(db: DB, filePath: string): number {
+  const r = db
+    .prepare(`
+      SELECT COUNT(*) AS deg FROM (
+        SELECT ft2.file_path
+        FROM file_touches ft1
+        JOIN commits c ON c.sha = ft1.commit_sha AND c.is_fix = 1
+        JOIN file_touches ft2 ON ft2.commit_sha = ft1.commit_sha AND ft2.file_path != ft1.file_path
+        WHERE ft1.file_path = ?
+        GROUP BY ft2.file_path
+        HAVING COUNT(*) >= 2
+      )
     `)
     .get(filePath) as { deg: number } | undefined;
   return r?.deg ?? 0;
@@ -323,7 +340,7 @@ export async function runTimeTravelBacktest(
         // this fix against the confusion matrix — that broader "negative
         // set" is ill-defined at this scope (any unrelated file is trivially
         // "negative for THIS fix") and would explode FP.
-        scoredSamples.push({ score, confidence, positive: true, cochange: cochangeDegree(queryDb, file) });
+        scoredSamples.push({ score, confidence, positive: true, cochange: cochangeDegree(queryDb, file), cochange2: cochangeDegree2(queryDb, file) });
         if (verdict === "medium" || verdict === "high") tp++;
         else fn++;
       }
@@ -417,7 +434,7 @@ export async function runTimeTravelBacktest(
           totalCommits: indexedTotal,
         });
         const verdict = mapVerdict(score, confidence);
-        scoredSamples.push({ score, confidence, positive: false, cochange: cochangeDegree(queryDb, row.file_path) });
+        scoredSamples.push({ score, confidence, positive: false, cochange: cochangeDegree(queryDb, row.file_path), cochange2: cochangeDegree2(queryDb, row.file_path) });
         if (verdict === "medium" || verdict === "high") fp++;
       }
     } finally {
