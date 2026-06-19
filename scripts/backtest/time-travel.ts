@@ -104,6 +104,10 @@ export interface TimeTravelResult {
   recall: number;              // tp / (tp + fn)
   excluded_signals: SignalType[];
   debug_events?: TimeTravelEvent[];
+  // Every scored sample (positive = fix-touched file, negative = control
+  // file), with its raw score/confidence. Lets a caller sweep the firing
+  // threshold offline from a single run instead of re-running per threshold.
+  scored_samples?: Array<{ score: number; confidence: number; positive: boolean }>;
 }
 
 // Enumerate ground-truth events from a fully-indexed DB. Each event pairs
@@ -233,6 +237,7 @@ export async function runTimeTravelBacktest(
   const sampled = sampleUniform(allEvents, maxEvents);
 
   const debug: TimeTravelEvent[] = [];
+  const scoredSamples: Array<{ score: number; confidence: number; positive: boolean }> = [];
   let tp = 0;
   let fp = 0;
   let fn = 0;
@@ -299,6 +304,7 @@ export async function runTimeTravelBacktest(
         // this fix against the confusion matrix — that broader "negative
         // set" is ill-defined at this scope (any unrelated file is trivially
         // "negative for THIS fix") and would explode FP.
+        scoredSamples.push({ score, confidence, positive: true });
         if (verdict === "medium" || verdict === "high") tp++;
         else fn++;
       }
@@ -392,6 +398,7 @@ export async function runTimeTravelBacktest(
           totalCommits: indexedTotal,
         });
         const verdict = mapVerdict(score, confidence);
+        scoredSamples.push({ score, confidence, positive: false });
         if (verdict === "medium" || verdict === "high") fp++;
       }
     } finally {
@@ -430,5 +437,6 @@ export async function runTimeTravelBacktest(
     excluded_signals: [...excludeSignals],
   };
   if (returnDebugEvents) result.debug_events = debug;
+  result.scored_samples = scoredSamples;
   return result;
 }
