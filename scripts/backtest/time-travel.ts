@@ -29,6 +29,7 @@ import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { openDatabase } from "../../src/memory/db.js";
+import type { DB } from "../../src/memory/db.js";
 import { runMigrations } from "../../src/memory/schema.js";
 import { ingestRange } from "../../src/memory/ingest/tier1.js";
 import { collectSignals } from "../../src/memory/signals/index.js";
@@ -107,7 +108,25 @@ export interface TimeTravelResult {
   // Every scored sample (positive = fix-touched file, negative = control
   // file), with its raw score/confidence. Lets a caller sweep the firing
   // threshold offline from a single run instead of re-running per threshold.
-  scored_samples?: Array<{ score: number; confidence: number; positive: boolean }>;
+  scored_samples?: Array<{ score: number; confidence: number; positive: boolean; cochange: number }>;
+}
+
+// Prototype co-change signal: how many DISTINCT other files this file has
+// co-occurred with in past FIX commits (is_fix=1) at the pre-break snapshot.
+// Hypothesis: fix-coupling hubs are likelier to be in a future fix's blast
+// radius, and this DISCRIMINATES them from merely-recently-active files in a
+// way the per-file activity signals cannot.
+function cochangeDegree(db: DB, filePath: string): number {
+  const r = db
+    .prepare(`
+      SELECT COUNT(DISTINCT ft2.file_path) AS deg
+      FROM file_touches ft1
+      JOIN commits c ON c.sha = ft1.commit_sha AND c.is_fix = 1
+      JOIN file_touches ft2 ON ft2.commit_sha = ft1.commit_sha AND ft2.file_path != ft1.file_path
+      WHERE ft1.file_path = ?
+    `)
+    .get(filePath) as { deg: number } | undefined;
+  return r?.deg ?? 0;
 }
 
 // Enumerate ground-truth events from a fully-indexed DB. Each event pairs
@@ -304,7 +323,7 @@ export async function runTimeTravelBacktest(
         // this fix against the confusion matrix — that broader "negative
         // set" is ill-defined at this scope (any unrelated file is trivially
         // "negative for THIS fix") and would explode FP.
-        scoredSamples.push({ score, confidence, positive: true });
+        scoredSamples.push({ score, confidence, positive: true, cochange: cochangeDegree(queryDb, file) });
         if (verdict === "medium" || verdict === "high") tp++;
         else fn++;
       }
@@ -398,7 +417,7 @@ export async function runTimeTravelBacktest(
           totalCommits: indexedTotal,
         });
         const verdict = mapVerdict(score, confidence);
-        scoredSamples.push({ score, confidence, positive: false });
+        scoredSamples.push({ score, confidence, positive: false, cochange: cochangeDegree(queryDb, row.file_path) });
         if (verdict === "medium" || verdict === "high") fp++;
       }
     } finally {
