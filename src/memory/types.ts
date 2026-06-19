@@ -19,7 +19,8 @@ export type SignalType =
   | "revert_match"
   | "hotspot"
   | "fix_ratio"
-  | "author_churn";
+  | "author_churn"
+  | "cochange";
 
 export type Intent =
   | "refactor"
@@ -47,6 +48,7 @@ export interface Signal {
   // Signal-specific extras (present for some signals only)
   touches_90d?: number;
   ratio?: number;
+  cochange_degree?: number;
 }
 
 export interface ResponseMetadata {

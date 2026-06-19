@@ -5,6 +5,7 @@ import { computeRevertMatch } from "./revert-match.js";
 import { computeHotspot } from "./hotspot.js";
 import { computeFixRatio } from "./fix-ratio.js";
 import { computeAuthorChurn } from "./author-churn.js";
+import { computeCochange } from "./cochange.js";
 
 export function collectSignals(db: DB, _repoPath: string, filePath: string): Signal[] {
   return [
@@ -12,5 +13,6 @@ export function collectSignals(db: DB, _repoPath: string, filePath: string): Sig
     computeHotspot(db, filePath),
     computeFixRatio(db, filePath),
     computeAuthorChurn(db, filePath),
+    computeCochange(db, filePath),
   ];
 }

@@ -7,7 +7,7 @@ import { runMigrations } from "../../../../src/memory/schema.js";
 import { collectSignals } from "../../../../src/memory/signals/index.js";
 
 describe("collectSignals — signal inventory after coverage_decline retirement", () => {
-  it("returns exactly 4 signals in the canonical order", () => {
+  it("returns exactly 5 signals in the canonical order", () => {
     const dir = mkdtempSync(join(tmpdir(), "composto-shape-"));
     const db = openDatabase(join(dir, "m.db"));
     try {
@@ -19,6 +19,7 @@ describe("collectSignals — signal inventory after coverage_decline retirement"
         "hotspot",
         "fix_ratio",
         "author_churn",
+        "cochange",
       ]);
     } finally {
       db.close();

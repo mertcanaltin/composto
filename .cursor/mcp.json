@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "composto": {
+      "command": "composto-mcp"
+    }
+  }
+}

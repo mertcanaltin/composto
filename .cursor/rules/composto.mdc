@@ -1,0 +1,36 @@
+---
+description: Composto MCP usage — tells the agent when to prefer composto_blastradius / composto_context / composto_ir / composto_scan over built-in file tools.
+alwaysApply: true
+---
+
+# Composto MCP — when to use
+
+This project has the `composto` MCP server registered. Prefer Composto tools over Cursor's built-in tools in the situations below.
+
+## Before editing any existing file under `src/`, `lib/`, or `app/`
+
+Call `composto_blastradius` with the target file path **first**, before proposing any edit.
+
+- If `verdict` is `high`: surface the risk to the user before changing the file. Mention the strongest signal (e.g. "this file was reverted the last time it was touched", "high fix-ratio in recent history").
+- If `verdict` is `medium`: note it briefly and proceed.
+- If `verdict` is `low` or `unknown`: proceed without comment.
+
+Skip this on test files, generated code, lockfiles, and anything in `node_modules/` or `dist/`.
+
+## When the user says "fix this bug in X", "why does X return wrong value", or "trace X"
+
+Call `composto_context` with `target: "<symbol-or-file>"` and `budget: 4000` instead of opening 5 files individually. The target file comes back as raw code; surrounding files come back as compressed IR. One round-trip, full picture.
+
+## When you only need to know what a file does (not its exact code)
+
+Call `composto_ir` with `layer: "L1"` instead of `read_file`. ~89% fewer tokens, same understanding. Use `read_file` only when you need exact strings, regexes, or formatting.
+
+## Before staging commits / when reviewing diffs
+
+Call `composto_scan` on the changed paths to catch hardcoded secrets, debug artifacts, and stray `console.log` calls before the user commits.
+
+## Don't
+
+- Don't call `composto_benchmark` unless the user explicitly asks about token savings.
+- Don't run `composto_blastradius` on every read — only before edits.
+- Don't compress a file the user explicitly asked to see in full.

@@ -57,11 +57,34 @@ function validateAuthorChurn(db: DB): Validation {
   return { total, hits };
 }
 
+// Among files that have fix co-change coupling (the signal fires), what
+// fraction are actually break-involved (appear as a suspected_break file).
+function validateCochange(db: DB): Validation {
+  const total = (db.prepare(`
+    SELECT COUNT(DISTINCT ft1.file_path) AS n
+    FROM file_touches ft1
+    JOIN commits c ON c.sha = ft1.commit_sha AND c.is_fix = 1
+    JOIN file_touches ft2 ON ft2.commit_sha = ft1.commit_sha AND ft2.file_path != ft1.file_path
+  `).get() as { n: number }).n;
+  const hits = (db.prepare(`
+    SELECT COUNT(DISTINCT ft1.file_path) AS n
+    FROM file_touches ft1
+    JOIN commits c ON c.sha = ft1.commit_sha AND c.is_fix = 1
+    JOIN file_touches ft2 ON ft2.commit_sha = ft1.commit_sha AND ft2.file_path != ft1.file_path
+    WHERE ft1.file_path IN (
+      SELECT ft.file_path FROM file_touches ft
+      JOIN fix_links fl ON fl.suspected_break_sha = ft.commit_sha
+    )
+  `).get() as { n: number }).n;
+  return { total, hits };
+}
+
 const VALIDATORS: Record<SignalType, (db: DB) => Validation> = {
   revert_match: validateRevertMatch,
   hotspot: validateHotspot,
   fix_ratio: validateFixRatio,
   author_churn: validateAuthorChurn,
+  cochange: validateCochange,
 };
 
 export function refreshCalibration(db: DB, headSha: string): void {

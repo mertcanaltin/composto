@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "command": "composto hook cursor pretooluse"
+      }
+    ]
+  }
+}
