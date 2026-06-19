@@ -36,6 +36,41 @@ describe("computeScoreAndConfidence", () => {
     expect(score).toBeCloseTo(0.833, 2);
   });
 
+  it("applies co-change as a multiplicative gate, not an averaged term", () => {
+    // Base (non-cochange) score = 1.0*0.8 / 0.8 = 1.0.
+    const base = signal({ type: "revert_match", strength: 1.0, precision: 0.8, sample_size: 50 });
+    const ctx = { tazelik: "fresh" as const, partial: false, totalCommits: 1500 };
+
+    // Pin the floor so the assertion is independent of the shipped default.
+    const prev = process.env.COMPOSTO_COCHANGE_FLOOR;
+    process.env.COMPOSTO_COCHANGE_FLOOR = "0.5";
+    try {
+      const strong = computeScoreAndConfidence(
+        [base, signal({ type: "cochange", strength: 1.0, precision: 0.5, sample_size: 50 })],
+        ctx
+      ).score;
+      const weak = computeScoreAndConfidence(
+        [base, signal({ type: "cochange", strength: 0, precision: 0.5, sample_size: 50 })],
+        ctx
+      ).score;
+
+      // Strong coupling → no penalty; weak coupling → pulled to the FLOOR (0.5).
+      expect(strong).toBeCloseTo(1.0, 3);
+      expect(weak).toBeCloseTo(0.5, 3);
+    } finally {
+      if (prev === undefined) delete process.env.COMPOSTO_COCHANGE_FLOOR;
+      else process.env.COMPOSTO_COCHANGE_FLOOR = prev;
+    }
+  });
+
+  it("leaves score unchanged when no co-change signal is present (backward compatible)", () => {
+    const { score } = computeScoreAndConfidence(
+      [signal({ strength: 1.0, precision: 0.8, sample_size: 50 })],
+      { tazelik: "fresh", partial: false, totalCommits: 1500 }
+    );
+    expect(score).toBeCloseTo(1.0, 3);
+  });
+
   it("confidence is dominated by the weakest factor", () => {
     const { confidence } = computeScoreAndConfidence(
       [signal({ strength: 1.0, precision: 0.9, sample_size: 50 })],
