@@ -169,6 +169,29 @@ describe("astWalkIR", () => {
       expect(ir).toContain("VAR:API_URL");
     });
 
+    it("keeps module-level array constants with element count", async () => {
+      const code =
+        "const SECRET_PATTERNS = [/a/, /b/, /c/, /d/];\nfunction scan() { return SECRET_PATTERNS; }";
+      const ir = await astWalkIR(code, "detect.ts");
+      expect(ir).toContain("VAR:SECRET_PATTERNS[4]");
+    });
+
+    it("keeps module-level object constants with their keys", async () => {
+      const code =
+        "const RULES = { security: securityRule, consoleLog: consoleLogRule };\nfunction run() { return RULES; }";
+      const ir = await astWalkIR(code, "rules.ts");
+      expect(ir).toContain("VAR:RULES");
+      expect(ir).toContain("security");
+      expect(ir).toContain("consoleLog");
+    });
+
+    it("keeps module-level numeric threshold constants with their value", async () => {
+      const code =
+        "const USABLE_SAMPLE_THRESHOLD = 20;\nfunction f() { return USABLE_SAMPLE_THRESHOLD; }";
+      const ir = await astWalkIR(code, "thresh.ts");
+      expect(ir).toContain("VAR:USABLE_SAMPLE_THRESHOLD = 20");
+    });
+
     it("drops call expression statements (noise)", async () => {
       const code = 'import { validate } from "./validator.js";\nfunction process(input: string) {\n  validate(input);\n  return input;\n}';
       const ir = await astWalkIR(code, "proc.ts");

@@ -458,15 +458,38 @@ function emitTier3(node: SyntaxNode): string | null {
           const callee = value.childCount > 1 ? value.child(1)!.text : "...";
           return `AWAIT:${name}=${collapseText(callee, 40)}`;
         }
-        // Regular variables inside function bodies are noise — drop them
-        // Only keep top-level (module scope) variable declarations
+        // Regular variables inside function bodies are noise — drop them.
+        // Only keep top-level (module scope) declarations.
         if (node.parent?.type === "statement_block") return null;
-        // Drop module-level constants with simple literal values (numbers, booleans, objects, arrays, new expressions, function calls)
-        // These are configuration/setup noise — only string/template constants carry semantic value
+        // Module-level constants carry semantic weight (config tables, pattern
+        // lists, thresholds, singletons). Emit a compact shape — name plus a
+        // hint of the value — rather than dropping them or inlining the whole
+        // literal.
         const vt = value.type;
-        if (vt === "number" || vt === "true" || vt === "false") return null;
-        if (vt === "object" || vt === "array") return null;
-        if (vt === "new_expression" || vt === "call_expression") return null;
+        if (vt === "number" || vt === "true" || vt === "false") {
+          return `VAR:${name} = ${value.text}`;
+        }
+        if (vt === "array") {
+          return `VAR:${name}[${value.namedChildCount}]`;
+        }
+        if (vt === "object") {
+          const keys: string[] = [];
+          for (let i = 0; i < value.namedChildCount; i++) {
+            const member = value.namedChild(i)!;
+            keys.push(member.childForFieldName("key")?.text ?? member.text);
+            if (keys.length >= 6) break;
+          }
+          const more = value.namedChildCount > keys.length ? ", ..." : "";
+          return `VAR:${name}{${collapseText(keys.join(", "), 50)}${more}}`;
+        }
+        if (vt === "new_expression") {
+          const ctor = value.childForFieldName("constructor")?.text ?? "?";
+          return `VAR:${name} = new ${ctor}(...)`;
+        }
+        if (vt === "call_expression") {
+          const callee = value.childForFieldName("function")?.text ?? "?";
+          return `VAR:${name} = ${collapseText(callee, 40)}(...)`;
+        }
         const valText = value.text.replace(/"[^"]*"/g, '""').replace(/'[^']*'/g, "''").replace(/`[^`]*`/g, "``");
         return `VAR:${name} = ${collapseText(valText, 50)}`;
       }
