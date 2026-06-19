@@ -8,7 +8,17 @@ import { runStats } from "./cli/stats.js";
 import { openDatabase } from "./memory/db.js";
 import { runMigrations } from "./memory/schema.js";
 import { recordInvocation } from "./memory/telemetry/hook-invocations.js";
+import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
+
+const PKG_VERSION = (() => {
+  try {
+    const req = createRequire(import.meta.url);
+    return (req("../package.json") as { version: string }).version;
+  } catch {
+    return "0.0.0";
+  }
+})();
 
 async function readStdin(): Promise<string> {
   // Hook adapters expect a small JSON payload on stdin. If stdin is a TTY
@@ -188,10 +198,10 @@ switch (command) {
     break;
   }
   case "version":
-    console.log("composto v0.4.2");
+    console.log(`composto v${PKG_VERSION}`);
     break;
   default:
-    console.log("composto v0.4.2 — less tokens, more insight\n");
+    console.log(`composto v${PKG_VERSION} — less tokens, more insight\n`);
     console.log("Commands:");
     console.log("  scan [path]                           Scan codebase for issues");
     console.log("  trends [path]                         Analyze codebase health trends");

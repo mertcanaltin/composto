@@ -2,7 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { readFileSync } from "node:fs";
-import { resolve, relative, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { resolve, relative, join, dirname } from "node:path";
 import { generateLayer } from "../ir/layers.js";
 import { computeHealthFromTrends } from "../ir/health.js";
 import { getGitLog } from "../trends/git-log-parser.js";
@@ -20,9 +21,23 @@ import { MemoryAPI } from "../memory/api.js";
 
 const ALL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs"];
 
+const PKG_VERSION = (() => {
+  try {
+    const pkgPath = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "package.json",
+    );
+    return (JSON.parse(readFileSync(pkgPath, "utf-8")) as { version: string }).version;
+  } catch {
+    return "0.0.0";
+  }
+})();
+
 const server = new McpServer({
   name: "composto",
-  version: "0.4.2",
+  version: PKG_VERSION,
 });
 
 // Tool 1: composto_ir — Generate IR for a file
