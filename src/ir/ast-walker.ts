@@ -657,32 +657,33 @@ export async function astWalkIR(code: string, filePath: string): Promise<string 
   // Post-process pass 2: merge 3+ consecutive guard clauses
   // Only merge when there are 3 or more — keeps small if/ret pairs readable
   const merged: string[] = [];
-  let guardBlock: string[] = [];
+  let guardBlock: { indent: string; cond: string; ret: string }[] = [];
+
+  // Compress "RET 0.3" \u2192 "0.3" for compactness; keep "THROW:..." / bare "RET".
+  const guardValue = (ret: string): string => ret.replace(/^RET\s+/, "");
+
+  const flushGuards = () => {
+    if (guardBlock.length === 0) return;
+    if (guardBlock.length < 3) {
+      // Keep individual lines, preserving each branch's return value.
+      for (const g of guardBlock) merged.push(`${g.indent}IF:${g.cond} \u2192 ${g.ret}`);
+    } else {
+      const entries = guardBlock.map((g) => `${g.cond} \u2192 ${guardValue(g.ret)}`);
+      merged.push(`${guardBlock[0].indent}GUARD:[${entries.join(", ")}]`);
+    }
+    guardBlock = [];
+  };
 
   for (const line of pass1) {
-    const guardMatch = line.match(/^(\s*)IF:(.+?) \u2192 RET/);
+    const guardMatch = line.match(/^(\s*)IF:(.+?) \u2192 (.+)$/);
     if (guardMatch) {
-      guardBlock.push(guardMatch[2].trim());
+      guardBlock.push({ indent: guardMatch[1], cond: guardMatch[2].trim(), ret: guardMatch[3].trim() });
       continue;
     }
-    if (guardBlock.length > 0) {
-      if (guardBlock.length < 3) {
-        // Keep as individual lines
-        for (const g of guardBlock) merged.push(`  IF:${g} \u2192 RET`);
-      } else {
-        merged.push(`  GUARD:[${guardBlock.join(", ")}]`);
-      }
-      guardBlock = [];
-    }
+    flushGuards();
     merged.push(line);
   }
-  if (guardBlock.length > 0) {
-    if (guardBlock.length < 3) {
-      for (const g of guardBlock) merged.push(`  IF:${g} \u2192 RET`);
-    } else {
-      merged.push(`  GUARD:[${guardBlock.join(", ")}]`);
-    }
-  }
+  flushGuards();
 
   return merged.join("\n");
 }

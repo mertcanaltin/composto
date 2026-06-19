@@ -124,6 +124,33 @@ describe("astWalkIR", () => {
       const ir = await astWalkIR(code, "validate.ts");
       expect(ir).toContain("THROW:");
     });
+
+    it("preserves branch return values when merging 3+ guard clauses", async () => {
+      // Regression: GUARD:[...] kept the conditions but dropped the per-branch
+      // return values, losing what the function actually decides.
+      const code =
+        "function calibrate(n: number): number {\n" +
+        "  if (n < 20) return 0.3;\n" +
+        "  if (n < 100) return 0.6;\n" +
+        "  if (n < 1000) return 0.8;\n" +
+        "  return 1.0;\n}";
+      const ir = await astWalkIR(code, "calibrate.ts");
+      expect(ir).toContain("GUARD:");
+      expect(ir).toContain("0.3");
+      expect(ir).toContain("0.6");
+      expect(ir).toContain("0.8");
+    });
+
+    it("preserves branch return values for fewer than 3 guard clauses", async () => {
+      const code =
+        "function classify(n: number): string {\n" +
+        '  if (n < 0) return "neg";\n' +
+        '  if (n === 0) return "zero";\n' +
+        '  return "pos";\n}';
+      const ir = await astWalkIR(code, "classify.ts");
+      expect(ir).toContain('"neg"');
+      expect(ir).toContain('"zero"');
+    });
   });
 
   describe("Tier 3 — compressible expressions", () => {
