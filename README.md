@@ -1,23 +1,23 @@
 # Composto
 
-**Causal memory layer for coding agents. Catches the bug your agent is about to reintroduce.**
+**Token-efficient code context for AI agents. Your file's full structure in a fraction of the tokens, with its causal history baked in.**
 
-Composto is a repo-local graph of your git history that your AI coding agent consults before every edit. When a file was reverted recently, has a fix cluster in its history, or was last touched by someone who left the team, Composto surfaces that signal as in-context guidance before the agent writes the code. Hook-enforced on Claude Code, Cursor, and Gemini CLI. Local-first, MIT.
+Composto compresses any source file into a Health-Aware IR that keeps exactly what your agent needs — signatures, types, control flow, dependencies — at 60-95% fewer tokens than raw code. On top of that, it surfaces the file's causal history (what historically changed and broke alongside the code you're touching) as advisory context. Local-first, MIT. Works with Claude Code, Cursor, and Gemini CLI.
 
 ```
-$ composto impact src/memory/signals/hotspot.ts
+$ composto ir src/memory/confidence.ts L1
 
-verdict:    medium
-score:      0.52
-confidence: 0.50
-signals:
-  revert_match       ■■■■■■■■■■ strength=1.00 precision=1.00
-  hotspot            ■          strength=0.10 precision=0.54
-  fix_ratio          ■          strength=0.07 precision=0.54
-  author_churn       ·          strength=0.00 precision=0.16
+USE:./types.js
+OUT INTERFACE:ConfidenceContext
+OUT INTERFACE:ScoreAndConfidence
+FN:calibrationFactor(signals: Signal[])
+      GUARD:[firing.length === 0 → 1.0, avg < 20 → 0.3, avg < 100 → 0.6]
+FN:historyFactor(totalCommits: number)
+      GUARD:[totalCommits < 50 → 0.2, totalCommits < 200 → 0.5, totalCommits < 1000 → 0.8]
+OUT FN:computeScoreAndConfidence(signals: Signal[], ctx: ConfidenceContext)
 
-# This file was touched by a Revert commit in history.
-# blastradius remembers. Your LLM couldn't.
+# 541 tokens of raw code → 230 tokens of IR (57% fewer). Structure intact:
+# every signature, dependency, and decision threshold survives.
 ```
 
 ---
@@ -45,9 +45,9 @@ composto impact src/auth/login.ts
 composto index --status     # diagnostics: schema, freshness, calibration
 ```
 
-### Also in the box: AST compression tools
+### The core: token-efficient structural context
 
-Composto also ships a tree-sitter based AST compressor (about 89% token savings) and a smart context packer for bug-fix tasks. These are separate from the causal layer but live in the same binary.
+Composto's spine is a tree-sitter based AST compressor and a smart context packer. Compress any file to IR, or pack a whole directory into a token budget:
 
 ```bash
 composto ir src/app.ts                 # compress a file to IR (L0/L1/L2/L3)
@@ -56,6 +56,10 @@ composto benchmark .                   # see compression stats
 ```
 
 See the [IR Layers](#ir-layers), [Health-Aware IR](#health-aware-ir), and [Context Budget](#context-budget) sections below for details.
+
+### On top: causal history as advisory context
+
+Composto also indexes your git history and surfaces what historically changed and broke alongside the file you're editing — advisory context the agent weighs, not a gate. See [Causal context](#causal-context) below.
 
 ### MCP plugin (Claude Code, Cursor, Claude Desktop)
 
@@ -188,27 +192,25 @@ composto index --status        # diagnostics: schema, freshness, calibration
 
 ---
 
-## BlastRadius
+## Causal context
 
-Beyond compression, Composto indexes your repo's git history into a local SQLite graph and exposes it as a queryable risk surface. Before your agent edits a file, it can ask: *"has this region been reverted? who fixed the last similar bug? is the last author still around?"* — signals no LLM can infer from current code alone.
+On top of compression, Composto indexes your repo's git history into a local SQLite graph and surfaces what the current code can't tell you: *"has this region been reverted? does it have a fix cluster? what files historically changed and broke alongside it?"* — context no LLM can infer from the file alone. It's delivered as **advisory context the agent weighs**, not a hard gate.
 
-Four signals per query: `revert_match`, `hotspot`, `fix_ratio`, `author_churn`. Verdict is `low` / `medium` / `high` / `unknown`; when confidence is low the tool returns `unknown` rather than guessing. Precision is repo-calibrated (self-validation over the repo's own fix history).
+Signals per query: `revert_match`, `hotspot`, `fix_ratio`, `author_churn`, `cochange`. The tool returns `unknown` when confidence is low rather than guessing.
 
 ```
-verdict:    high
-score:      1.00
-confidence: 0.30
-signals:
-  revert_match       ■■■■■■■■■■ strength=1.00 precision=0.50
-  hotspot            ·          strength=0.00 precision=0.30
-  ...
+$ composto impact src/auth/login.ts
+
+revert_match   ■■■■■■■■■■ this file was touched by a Revert commit
+cochange       ■■■■■      historically co-changed with session.ts, token.ts in fixes
+hotspot        ■          14 changes in the last 90 days
 ```
 
-**Where we are, honestly.** The v2.1 time-travel backtest (rewinds the DB to each pre-fix snapshot) shows `revert_match` carrying most of the product's value — it clears the ship gate on picomatch (precision 0.65, recall 0.78 on the `medium|high` band). Signal-attributed precision (excluding `revert_match`) is weaker: the three non-revert signals are alive but need calibration work. See [docs/blastradius-proof-v2.md](docs/blastradius-proof-v2.md) for numbers on all four band combinations across two public repos + the per-signal diagnostic behind them.
+**Where we are, honestly.** A 4-repo time-travel backtest (fastify, express, got, flask — each rewound to pre-fix snapshots) shows the causal layer is a **high-recall, advisory-grade** signal: on mature repos it recovers 67-80% of the files a fix actually touches. Precision is modest (~0.55) — these signals point you at *candidates*, they don't certify them, which is exactly why Composto surfaces them as context for the agent to judge rather than as a blocking verdict. Recall scales with git history, so the value grows as your repo matures (a young repo gets little until it accumulates fix history).
 
-The honest framing: **BlastRadius is a bug-history memory layer that agents query before editing.** "This file was reverted three weeks ago" is the primary promise v1 delivers. The other signals expand the query surface — calibration work on `hotspot` and `fix_ratio` is the open follow-on.
+The honest framing: **causal context is a high-recall memory layer agents consult before editing** — "these files have a history of breaking together" — not a precision gate. The compression core works unconditionally; the causal layer adds repo-specific memory on top.
 
-Feature-flagged via `COMPOSTO_BLASTRADIUS=1` during the beta. Available as both CLI (`composto impact`, `composto index`) and MCP tool (`composto_blastradius`).
+Available as CLI (`composto impact`, `composto index`) and MCP tool (`composto_blastradius`, gated by `COMPOSTO_BLASTRADIUS=1` during beta).
 
 ---
 
@@ -307,14 +309,14 @@ Hotspot files get full detail. Everything else gets structure. Budget is never e
 ## Stats
 
 ```
-Overall compression: 89.2%
-L0 compression:      97.5%
-AST engine:          51/51 files (0 regex fallback)
+L1 compression:      ~81% fewer tokens (full IR, structure preserved)
+L0 compression:      ~97% fewer tokens (structure map)
+Token counts:        verified against a real BPE tokenizer, not estimates
+AST engine:          AST-parsed, 0 regex fallback
 Languages:           TypeScript, JavaScript, Python, Go, Rust
-Tests:               251 passing
-BlastRadius v2.1:    precision 0.65, recall 0.78 (picomatch, time-travel,
-                     medium|high band). Honest signal-attributed numbers
-                     in docs/blastradius-proof-v2.md.
+Causal layer:        high-recall advisory (0.67-0.80 recall on mature repos,
+                     time-travel backtest across 4 public repos); precision
+                     ~0.55, surfaced as context not a gate.
 ```
 
 ---
