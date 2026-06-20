@@ -1,11 +1,15 @@
 // src/memory/signals/cochange.ts
 // Co-change coupling: how many DISTINCT other files this file has co-occurred
 // with in past FIX commits (is_fix=1). Unlike the per-file activity signals
-// (hotspot, fix_ratio, author_churn), this is a *coupling* measure — it fires
-// on files that are repeatedly part of multi-file fixes, which discriminates
-// real blast-radius hubs from merely-recently-active files. Validated as a
-// precision lever in scripts/threshold-sweep.ts (it breaks the ~0.55 precision
-// ceiling that threshold tuning could not).
+// (hotspot, fix_ratio, author_churn), this is a *coupling* measure, intended
+// to discriminate real blast-radius hubs from merely-recently-active files.
+//
+// HONEST STATUS: a 4-repo backtest (fastify, express, got, flask) found this
+// to be a WEAK discriminator (AUC ~0.45-0.55, near random; below random on
+// flask). It only helps precision on fastify. It feeds the optional
+// multiplicative gate in computeScoreAndConfidence, which is OFF by default
+// (see DEFAULT_COCHANGE_FLOOR). Kept as a building block / env-tunable opt-in,
+// not a proven general win.
 //
 // strength = min(1.0, degree / 10).
 

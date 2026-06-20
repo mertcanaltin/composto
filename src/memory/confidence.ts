@@ -48,17 +48,22 @@ function historyFactor(totalCommits: number): number {
   return 1.0;
 }
 
-// Co-change is applied CONJUNCTIVELY (a multiplicative gate), not as a term in
-// the precision-weighted average. A weighted average is disjunctive — it can
-// only blend, so adding co-change there does not move precision (measured).
-// As a factor in [FLOOR, 1], weak fix-coupling pulls a file's score down, so a
-// file must be BOTH risky AND a coupling hub to keep a high score. This is the
-// precision lever the average cannot express. FLOOR is env-tunable so it can
-// be calibrated; FLOOR=1 disables the gate (backward compatible).
-// 0.4 chosen by two-repo backtest sweep: lifts precision (fastify 0.557→0.602,
-// clearing the 0.60 ship gate; express 0.546→0.580) while keeping recall well
-// above the 0.40 gate. Env-tunable for per-repo calibration.
-const DEFAULT_COCHANGE_FLOOR = 0.4;
+// Co-change can be applied CONJUNCTIVELY (a multiplicative gate): a factor in
+// [FLOOR, 1] pulls down the score of files with weak fix-coupling, so a file
+// must be BOTH risky AND a coupling hub to keep a high score. A weighted
+// average (disjunctive) cannot express this, which is why adding co-change to
+// the average did nothing (measured).
+//
+// HONEST STATUS: a 4-repo backtest (fastify, express, got, flask) showed the
+// gate is NOT a reliable global win. It lifts precision past the 0.60 gate on
+// fastify but NOT on the other three, and on flask co-change is actually
+// anti-discriminative (AUC 0.48), so the gate hurts recall there for no
+// precision gain. There is no global FLOOR that helps across repos. So the
+// gate ships DISABLED by default (FLOOR=1 → factor is always 1, a no-op) and
+// is left as an env-tunable opt-in for repos where it is known to help. The
+// real precision fix needs a fundamentally stronger discriminator than
+// co-change; tuning FLOOR cannot get there.
+const DEFAULT_COCHANGE_FLOOR = 1.0;
 
 // Read at call time (not module load) so it is tunable per run/process.
 function cochangeFloor(): number {
