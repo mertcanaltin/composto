@@ -2,6 +2,8 @@
 
 **Token-efficient code context for AI agents. Your file's full structure in a fraction of the tokens, with its causal history baked in.**
 
+> Send your agent the structure, not the noise.
+
 Composto compresses any source file into a Health-Aware IR that keeps exactly what your agent needs — signatures, types, control flow, dependencies — at 60-95% fewer tokens than raw code. On top of that, it surfaces the file's causal history (what historically changed and broke alongside the code you're touching) as advisory context. Local-first, MIT. Works with Claude Code, Cursor, and Gemini CLI.
 
 ```
