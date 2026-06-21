@@ -10,7 +10,7 @@ import { detectDecay } from "../trends/decay.js";
 import { detectInconsistencies } from "../trends/inconsistency.js";
 import { route, DEFAULT_ROUTES } from "../router/router.js";
 import { CLIAdapter } from "./adapter.js";
-import { benchmarkFile, summarize, type FileResult } from "../benchmark/runner.js";
+import { benchmarkFile, summarize, type FileResult, type BenchmarkSummary } from "../benchmark/runner.js";
 import { runQualityBenchmark } from "../benchmark/quality.js";
 import { packContext, type FileInput } from "../context/packer.js";
 import { estimateTokens } from "../benchmark/tokenizer.js";
@@ -147,6 +147,32 @@ export async function runBenchmark(projectPath: string): Promise<void> {
   console.log(`  L1 (full IR):        ${summary.totalRaw} → ${summary.totalIRL1} tokens (${summary.totalSavedPercent.toFixed(1)}% reduction)`);
   console.log(`  Files analyzed: ${summary.fileCount}`);
   console.log(`  Engine: ${summary.astCount} AST, ${summary.fpCount} FP`);
+
+  printSavingsCard(summary);
+}
+
+// Shareable savings card — the growth hook. The dollar figure is illustrative
+// (assumption stated inline); the share line carries only the measured fact.
+function printSavingsCard(summary: BenchmarkSummary): void {
+  if (summary.totalRaw <= 0) return;
+  const saved = summary.totalRaw - summary.totalIRL1;
+  const pct = summary.totalSavedPercent.toFixed(1);
+
+  // Claude Sonnet input pricing, $3 / Mtok. Scenario: 50 full-context loads/day.
+  const SONNET_PER_MTOK = 3;
+  const LOADS_PER_DAY = 50;
+  const DAYS = 30;
+  const rawCost = (summary.totalRaw / 1_000_000) * SONNET_PER_MTOK;
+  const irCost = (summary.totalIRL1 / 1_000_000) * SONNET_PER_MTOK;
+  const monthly = (rawCost - irCost) * LOADS_PER_DAY * DAYS;
+
+  console.log("\n  ─────────────────────────────────────────────────────────────────────");
+  console.log(`  💸 Every full-context load of this project: $${rawCost.toFixed(2)} raw → $${irCost.toFixed(2)} with Composto`);
+  console.log(`     (Claude Sonnet input, $3/Mtok). At ${LOADS_PER_DAY} loads/day that is ~$${monthly.toFixed(0)}/month saved.`);
+  console.log("\n  📋 Share your result:");
+  console.log(`     Composto compressed my ${summary.fileCount}-file project ${pct}% (${summary.totalRaw.toLocaleString()} → ${summary.totalIRL1.toLocaleString()} tokens).`);
+  console.log("     Try yours: npm i -g composto-ai && composto benchmark .");
+  console.log("  ─────────────────────────────────────────────────────────────────────");
 }
 
 export async function runBenchmarkQuality(projectPath: string, filePath: string): Promise<void> {
