@@ -1,5 +1,7 @@
 # BlastRadius — Quality Proof v2 (Plan 5b · time-travel)
 
+> **⚠️ SUPERSEDED (2026-06-21).** This 2-repo run (composto, picomatch) was not representative. A later honest 4-repo backtest (fastify, express, got, flask) found the signals are weak discriminators (AUC ~0.45-0.55): recall is good on mature repos (0.67-0.80) but **precision caps ~0.55**, and the picomatch 0.65/0.78 "ship gate cleared" result did NOT hold across repos. Adding a co-change signal + multiplicative gate moved precision past 0.60 only on fastify, not the others, so the gate now ships OFF by default. Composto positions the causal layer as **high-recall advisory** (not a precision gate) and leads with compression. See the project README. Numbers below are a historical record only.
+
 **Date:** 2026-04-20 (this run), 2026-04-21 (doc written)
 **Scope:** Two public repos (composto, picomatch) evaluated against the new time-travel harness. Third repo (vitest / zod) deferred — the two-repo signal is already load-bearing for the Phase 0 ship gate decision (see §4).
 **Harness:** `scripts/backtest/time-travel.ts` + `scripts/blastradius-backtest.ts --time-travel`

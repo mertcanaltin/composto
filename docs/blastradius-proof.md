@@ -1,5 +1,7 @@
 # BlastRadius — Quality Proof (v1 · v0.4.1)
 
+> **⚠️ SUPERSEDED (2026-06-21).** These numbers are from an early 2-3 repo run and read the ship gate as "cleared". A later honest 4-repo backtest (fastify, express, got, flask) found the BlastRadius signals are weak discriminators (AUC ~0.45-0.55, near random; below random on flask). Recall is genuinely good on mature repos (0.67-0.80), but **precision caps ~0.55** and the "ship gate cleared" framing did NOT generalize. Composto now positions the causal layer as a **high-recall advisory** layer (not a precision gate) and leads with token-efficient compression. See the project README for current positioning. Numbers below are kept as a historical record only.
+
 **Date:** 2026-04-19 (updated 2026-04-20 with picomatch + zod runs under v0.4.1)
 **Scope:** Three public repos (composto, picomatch, zod) — all clear the ship gate. Post-ingest ground-truth confusion matrix against the `medium|high` verdict band.
 **Harness:** `scripts/blastradius-backtest.ts`
