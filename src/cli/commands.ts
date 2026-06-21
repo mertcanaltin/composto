@@ -11,6 +11,7 @@ import { detectInconsistencies } from "../trends/inconsistency.js";
 import { route, DEFAULT_ROUTES } from "../router/router.js";
 import { CLIAdapter } from "./adapter.js";
 import { benchmarkFile, summarize, type FileResult, type BenchmarkSummary } from "../benchmark/runner.js";
+import { VERSION } from "../version.js";
 import { runQualityBenchmark } from "../benchmark/quality.js";
 import { packContext, type FileInput } from "../context/packer.js";
 import { estimateTokens } from "../benchmark/tokenizer.js";
@@ -22,7 +23,7 @@ export function runScan(projectPath: string): void {
   const adapter = new CLIAdapter();
   const config = loadConfig(projectPath);
 
-  console.log("composto v0.4.2 — scanning...\n");
+  console.log(`composto v${VERSION} — scanning...\n`);
 
   const files = collectFiles(projectPath, [".ts", ".tsx", ".js", ".jsx"]);
   console.log(`  Found ${files.length} files\n`);
@@ -51,7 +52,7 @@ export function runTrends(projectPath: string): void {
   const adapter = new CLIAdapter();
   const config = loadConfig(projectPath);
 
-  console.log("composto v0.4.2 — trend analysis...\n");
+  console.log(`composto v${VERSION} — trend analysis...\n`);
 
   const entries = getGitLog(projectPath, 100);
   if (entries.length === 0) {
@@ -102,7 +103,7 @@ export async function runIR(projectPath: string, filePath: string, layer: string
 const ALL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs"];
 
 export async function runBenchmark(projectPath: string): Promise<void> {
-  console.log("composto v0.4.2 — benchmark\n");
+  console.log(`composto v${VERSION} — benchmark\n`);
 
   const files = collectFiles(projectPath, ALL_EXTENSIONS);
   console.log(`  ${files.length} files\n`);
@@ -185,7 +186,7 @@ export async function runBenchmarkQuality(projectPath: string, filePath: string)
   const code = readFileSync(filePath, "utf-8");
   const relPath = relative(projectPath, filePath);
 
-  console.log("composto v0.4.2 — quality benchmark\n");
+  console.log(`composto v${VERSION} — quality benchmark\n`);
   console.log(`  File: ${relPath}\n`);
   console.log("  Sending to Claude Haiku...\n");
 
@@ -216,8 +217,8 @@ export async function runBenchmarkQuality(projectPath: string, filePath: string)
 
 export async function runContext(projectPath: string, budget: number, target?: string): Promise<void> {
   const header = target
-    ? `composto v0.4.2 — context (target: ${target}, budget: ${budget} tokens)\n`
-    : `composto v0.4.2 — context (budget: ${budget} tokens)\n`;
+    ? `composto v${VERSION} — context (target: ${target}, budget: ${budget} tokens)\n`
+    : `composto v${VERSION} — context (budget: ${budget} tokens)\n`;
   console.log(header);
 
   const files = collectFiles(projectPath, ALL_EXTENSIONS);
