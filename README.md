@@ -24,28 +24,34 @@ OUT FN:computeScoreAndConfidence(signals: Signal[], ctx: ConfidenceContext)
 
 ---
 
-## Quick Start
+## Use it in 3 steps
 
 ```bash
-# Install
+# 1. Install
 npm install -g composto-ai
 
-# One-command setup, wires MCP + PreToolUse hook into your AI client
+# 2. See the value on your own repo (local, no API key, ~2s)
 cd your-project
+composto benchmark .            # token savings + a shareable card
+
+# 3. Wire it into your AI agent so it gets compact context automatically
 composto init --client=claude-code     # or cursor, or gemini-cli
-
-# Restart your AI client. Hook fires on every Edit / Write / MultiEdit.
-# On medium|high|unknown verdicts, the agent gets a composto_blastradius
-# block in context before it acts. Passthrough on low.
-
-# Observe
-composto stats              # hook invocations, verdict distribution, latency
-composto stats --disable    # local-only opt-out (writes .composto/telemetry-disabled)
-
-# Query on demand
-composto impact src/auth/login.ts
-composto index --status     # diagnostics: schema, freshness, calibration
+# Restart your client. Existing settings are merged, never overwritten.
 ```
+
+That's it. Your agent now reads structure-preserving IR instead of raw files.
+
+<details>
+<summary>More commands</summary>
+
+```bash
+composto ir src/app.ts                 # compress one file to IR (L0/L1/L2/L3)
+composto context src/ --budget 4000    # pack a directory into a token budget
+composto context . --target <symbol>   # target file raw, surroundings as IR
+composto impact src/auth/login.ts      # advisory causal history for a file
+composto stats                         # hook telemetry (local-only)
+```
+</details>
 
 ### The core: token-efficient structural context
 
