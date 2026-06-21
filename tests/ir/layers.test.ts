@@ -62,3 +62,15 @@ describe("generateL1 — Health-Aware Generic IR", () => {
     expect(result).toContain("[HOT:15/30 FIX:70% COV:↓ INCON]");
   });
 });
+
+describe("generateL1 — safety fallback", () => {
+  it("falls back to raw when the IR would be empty (generated/data files)", async () => {
+    // A data blob with no extractable structure: the walker emits nothing, so
+    // the old `ir.length < code.length` guard returned the empty IR (reported
+    // as "100% saved" but really total information loss).
+    const code = 'module.exports = "' + "token ".repeat(300) + '";';
+    const l1 = await generateL1(code, "data.js", null);
+    expect(l1.trim().length).toBeGreaterThan(0); // never empty
+    expect(l1).toBe(code); // falls back to the raw source
+  });
+});

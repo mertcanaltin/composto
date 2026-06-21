@@ -3,6 +3,7 @@ import { extractStructure } from "./structure.js";
 import { fingerprintFile } from "./fingerprint.js";
 import { annotateIR } from "./health.js";
 import { astWalkIR } from "./ast-walker.js";
+import { estimateTokens } from "../benchmark/tokenizer.js";
 
 export function generateL0(code: string, filePath: string): string {
   const structure = extractStructure(code);
@@ -22,9 +23,14 @@ export function generateL0(code: string, filePath: string): string {
 
 export async function generateL1(code: string, filePath: string, health: HealthAnnotation | null): Promise<string> {
   const ir = await astWalkIR(code, filePath) ?? fingerprintFile(code, 0.75);
-  // Safety: if IR is larger than raw code, return raw code
-  // This happens with pure data files (symbols, constants) where IR adds prefixes
-  const result = ir.length < code.length ? ir : code;
+  // Fall back to the raw source when the IR is not a real win:
+  //  - empty/whitespace-only: the engine found no structure (generated/data
+  //    files). An empty IR is total information loss, not "100% compression".
+  //  - not fewer TOKENS than the source. Token is the value metric, not chars:
+  //    a char-shorter IR can still tokenize to more tokens (prefixes like
+  //    USE:/FN: split into extra tokens).
+  const irIsWin = ir.trim().length > 0 && estimateTokens(ir) < estimateTokens(code);
+  const result = irIsWin ? ir : code;
   if (health) {
     return annotateIR(result, health);
   }
