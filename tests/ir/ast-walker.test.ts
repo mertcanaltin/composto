@@ -192,6 +192,26 @@ describe("astWalkIR", () => {
       expect(ir).toContain("VAR:USABLE_SAMPLE_THRESHOLD = 20");
     });
 
+    it("captures module-level member function assignments (res.send = function)", async () => {
+      // Regression: prototype/object-method assignments (common in express,
+      // Node core) were dropped as noise, so the IR lost the entire API surface.
+      const code =
+        "var res = {};\n" +
+        "res.send = function send(body) { return this; };\n" +
+        "res.json = function json(obj) { return this; };\n" +
+        "res.redirect = (url) => { return url; };";
+      const ir = await astWalkIR(code, "response.ts");
+      expect(ir).toContain("FN:res.send(body)");
+      expect(ir).toContain("FN:res.json(obj)");
+      expect(ir).toContain("FN:res.redirect(url)");
+    });
+
+    it("drops member function assignments inside function bodies (this.x = fn)", async () => {
+      const code = "function setup() {\n  this.handler = function() { return 1; };\n}";
+      const ir = await astWalkIR(code, "setup.ts");
+      expect(ir).not.toContain("this.handler");
+    });
+
     it("drops call expression statements (noise)", async () => {
       const code = 'import { validate } from "./validator.js";\nfunction process(input: string) {\n  validate(input);\n  return input;\n}';
       const ir = await astWalkIR(code, "proc.ts");

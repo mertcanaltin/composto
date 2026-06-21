@@ -505,6 +505,25 @@ function emitTier3(node: SyntaxNode): string | null {
         return null;
       }
 
+      if (expr.type === "assignment_expression") {
+        // Module-scope `obj.method = function/arrow` defines API surface
+        // (express, Node core, prototype-style modules). Keep it. Assignments
+        // inside function bodies (this.x = fn) stay noise.
+        if (node.parent?.type === "statement_block") return null;
+        const left = expr.childForFieldName("left");
+        const right = expr.childForFieldName("right");
+        if (
+          left?.type === "member_expression" &&
+          right &&
+          (right.type === "function_expression" || right.type === "arrow_function")
+        ) {
+          const asyncPrefix = isAsync(right) ? "ASYNC " : "";
+          const params = right.childForFieldName("parameters")?.text ?? "()";
+          return `${asyncPrefix}FN:${left.text}${collapseText(params, 60)}`;
+        }
+        return null;
+      }
+
       if (expr.type === "call_expression") {
         // Capture runtime inheritance patterns — these are structurally important
         const callee = expr.child(0)?.text ?? "";
