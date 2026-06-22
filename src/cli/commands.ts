@@ -215,14 +215,21 @@ export async function runBenchmarkQuality(projectPath: string, filePath: string)
   }
 }
 
-export async function runContext(projectPath: string, budget: number, target?: string): Promise<void> {
-  const header = target
-    ? `composto v${VERSION} — context (target: ${target}, budget: ${budget} tokens)\n`
-    : `composto v${VERSION} — context (budget: ${budget} tokens)\n`;
-  console.log(header);
+export async function runContext(
+  projectPath: string,
+  budget: number,
+  target?: string,
+  json?: boolean,
+): Promise<void> {
+  if (!json) {
+    const header = target
+      ? `composto v${VERSION} — context (target: ${target}, budget: ${budget} tokens)\n`
+      : `composto v${VERSION} — context (budget: ${budget} tokens)\n`;
+    console.log(header);
+  }
 
   const files = collectFiles(projectPath, ALL_EXTENSIONS);
-  console.log(`  ${files.length} files\n`);
+  if (!json) console.log(`  ${files.length} files\n`);
 
   const config = loadConfig(projectPath);
   const entries = getGitLog(projectPath, 100);
@@ -238,6 +245,29 @@ export async function runContext(projectPath: string, budget: number, target?: s
   });
 
   const result = await packContext(fileInputs, { budget, hotspots, target });
+
+  // Machine-readable mode: clean stdout for piping into agents / scripts.
+  // No decorative chrome, no indentation — just the structured context.
+  if (json) {
+    console.log(
+      JSON.stringify({
+        budget: result.budget,
+        totalTokens: result.totalTokens,
+        target: result.targetFile ?? null,
+        targetDowngraded: result.targetDowngraded ?? false,
+        filesAtL3: result.filesAtL3,
+        filesAtL1: result.filesAtL1,
+        filesAtL0: result.filesAtL0,
+        entries: result.entries.map(e => ({
+          path: e.path,
+          layer: e.layer,
+          isTarget: e.isTarget ?? false,
+          content: e.ir,
+        })),
+      }),
+    );
+    return;
+  }
 
   if (target && !result.targetFile) {
     console.log(`  Warning: symbol "${target}" not found in any file. Showing general context.\n`);

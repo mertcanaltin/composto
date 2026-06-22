@@ -5,6 +5,7 @@ import {
 import { runInit, type InitClient } from "./cli/init.js";
 import { runHookDispatch, type Platform, type Event as HookEvent } from "./cli/hook/dispatcher.js";
 import { runStats } from "./cli/stats.js";
+import { startProxy } from "./proxy/server.js";
 import { openDatabase } from "./memory/db.js";
 import { runMigrations } from "./memory/schema.js";
 import { recordInvocation } from "./memory/telemetry/hook-invocations.js";
@@ -70,6 +71,16 @@ switch (command) {
     await runBenchmarkQuality(resolve("."), resolve(filePath));
     break;
   }
+  case "proxy": {
+    const portFlag = args.indexOf("--port");
+    const port = portFlag >= 0 ? Number(args[portFlag + 1]) : Number(process.env.COMPOSTO_PROXY_PORT ?? 8787);
+    if (!Number.isInteger(port) || port <= 0) {
+      console.error("Usage: composto proxy [--port N]");
+      process.exit(1);
+    }
+    startProxy(port);
+    break; // server keeps the process alive
+  }
   case "context": {
     const projectPath = resolve(args[1] && !args[1].startsWith("--") ? args[1] : ".");
 
@@ -85,7 +96,8 @@ switch (command) {
     const budgetStr = parseFlag("budget");
     const budget = budgetStr ? parseInt(budgetStr, 10) : 4000;
     const target = parseFlag("target");
-    await runContext(projectPath, budget, target);
+    const json = args.includes("--json");
+    await runContext(projectPath, budget, target, json);
     break;
   }
   case "impact": {
@@ -120,10 +132,12 @@ switch (command) {
     }
     const withRules = args.includes("--with-rules");
     const withMcp = args.includes("--with-mcp");
+    const withCompress = args.includes("--with-compress");
     const result = runInit(resolve("."), {
       client: clientArg as InitClient | undefined,
       withRules,
       withMcp,
+      withCompress,
     });
     console.log(`composto init — configured for ${result.client}\n`);
     for (const f of result.written) console.log(`  wrote   ${f}`);
@@ -210,6 +224,7 @@ switch (command) {
     console.log("  benchmark-quality <file>              Compare AI responses: raw vs IR");
     console.log("  context [path] --budget N             Smart context within token budget");
     console.log("  context [path] --target <symbol>      Target file as raw, surrounding as IR");
+    console.log("  context [path] --json                Machine-readable output for piping into agents/scripts");
     console.log("  impact <file>                         Show historical blast radius for a file");
     console.log("  index [--since=YYYY-MM-DD]            Build or refresh the memory index (--since bounds work for huge repos)");
     console.log("  index --status                        Show memory index diagnostics");
@@ -217,8 +232,10 @@ switch (command) {
     console.log("                                        Lean Hook init (clients: cursor, claude-code, gemini-cli)");
     console.log("                                          --with-mcp   register the composto MCP server (5 tools)");
     console.log("                                          --with-rules write .cursor/rules/composto.mdc (cursor only)");
+    console.log("                                          --with-compress  auto-compress large code Reads to IR (claude-code; saves tokens, see `stats`)");
     console.log("  hook <platform> <event>               Run BlastRadius hook (reads tool JSON from stdin)");
     console.log("  stats [--json] [--disable]            Show hook telemetry (last 7d); --disable opts out");
+    console.log("  proxy [--port N]                      Run the compression proxy (point your LLM base URL at it)");
     console.log("  version                               Show version");
     break;
 }
