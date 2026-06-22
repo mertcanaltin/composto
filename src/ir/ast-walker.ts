@@ -86,6 +86,12 @@ export function collapseText(text: string, maxLen: number): string {
 
 const STRING_LITERAL = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g;
 
+// Operators that make an in-body declaration a "decision" worth keeping in the
+// IR (vs pure arithmetic/concat, which is dropped as body noise).
+const DECISION_OPS = new Set([
+  "===", "!==", "==", "!=", "<", ">", "<=", ">=", "&&", "||", "??", "instanceof", "in",
+]);
+
 /**
  * Like collapseText, but when an expression must be truncated, preserve the
  * string literals that fall past the cut. In ternaries/switch-mapping/guards
@@ -479,9 +485,27 @@ function emitTier3(node: SyntaxNode): string | null {
           const callee = value.childCount > 1 ? value.child(1)!.text : "...";
           return `AWAIT:${name}=${collapseText(callee, 40)}`;
         }
-        // Regular variables inside function bodies are noise — drop them.
-        // Only keep top-level (module scope) declarations.
-        if (node.parent?.type === "statement_block") return null;
+        // Inside function bodies most locals are noise, BUT a declaration whose
+        // RHS is a COMPUTED DECISION (comparison, boolean logic, ternary,
+        // arithmetic) is the "what it decides/derives" that downstream reasoning
+        // needs — dropping it collapses the body to a bare structure and loses
+        // the logic. Keep just those, compactly; plain copies/refs stay dropped.
+        if (node.parent?.type === "statement_block") {
+          // Ternaries are always a decision. Binary expressions only count when
+          // the operator is a comparison/logical one (===, <, &&, ?? ...) — pure
+          // arithmetic/concat (a + b) is usually noise, keeping it would be the
+          // "blanket body expansion" we want to avoid.
+          const isDecision =
+            value.type === "ternary_expression" ||
+            (value.type === "binary_expression" &&
+              DECISION_OPS.has(value.childForFieldName("operator")?.text ?? ""));
+          if (isDecision) {
+            // Slightly larger budget than other sites: a decision computation
+            // is the highest-value line in a body, and these are concise.
+            return `LET:${name} = ${collapseExpr(value.text, 80)}`;
+          }
+          return null;
+        }
         // Module-level constants carry semantic weight (config tables, pattern
         // lists, thresholds, singletons). Emit a compact shape — name plus a
         // hint of the value — rather than dropping them or inlining the whole
