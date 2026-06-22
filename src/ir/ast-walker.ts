@@ -84,6 +84,27 @@ export function collapseText(text: string, maxLen: number): string {
   return collapsed.slice(0, maxLen - 3) + "...";
 }
 
+const STRING_LITERAL = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g;
+
+/**
+ * Like collapseText, but when an expression must be truncated, preserve the
+ * string literals that fall past the cut. In ternaries/switch-mapping/guards
+ * (`x === "declining" ? "down" : ...`) those literals ARE the decision the
+ * code makes; dropping them is silent semantic loss. Appended compactly as
+ * `head...{"improving","stable"}` so the token cost is a few literals, not the
+ * whole expression. generateL1's raw-fallback still guards net token bloat.
+ */
+export function collapseExpr(text: string, maxLen: number): string {
+  const norm = text.replace(/\s*\n\s*/g, " ").replace(/\s{2,}/g, " ").trim();
+  if (norm.length <= maxLen) return norm;
+
+  const head = norm.slice(0, maxLen - 3) + "...";
+  const literals = norm.match(STRING_LITERAL) ?? [];
+  const dropped = [...new Set(literals.filter((lit) => !head.includes(lit)))];
+  if (dropped.length === 0) return head;
+  return `${head}{${dropped.join(",")}}`;
+}
+
 export function getTypeParams(node: SyntaxNode): string {
   for (let i = 0; i < node.childCount; i++) {
     const child = node.child(i)!;
@@ -161,7 +182,7 @@ function extractCondition(node: SyntaxNode): string {
     })();
   if (!condNode) return "...";
   const text = condNode.text.replace(/^\(/, "").replace(/\)$/, "").trim();
-  return text.length > 60 ? text.slice(0, 57) + "..." : text;
+  return collapseExpr(text, 60);
 }
 
 function emitTier2(node: SyntaxNode): string | null {
@@ -194,7 +215,7 @@ function emitTier2(node: SyntaxNode): string | null {
           return null;
         })();
       const text = expr ? expr.text.replace(/^\(/, "").replace(/\)$/, "").trim() : "...";
-      return `SWITCH:${text.length > 60 ? text.slice(0, 57) + "..." : text}`;
+      return `SWITCH:${collapseExpr(text, 60)}`;
     }
     case "switch_case": {
       // Find the case value — first non-keyword child
@@ -227,7 +248,7 @@ function emitTier2(node: SyntaxNode): string | null {
       }
       retText = retText.replace(/\s*\n\s*/g, " ").replace(/\s{2,}/g, " ").trim();
       if (!retText) return "RET";
-      return `RET ${retText.length > 60 ? retText.slice(0, 57) + "..." : retText}`;
+      return `RET ${collapseExpr(retText, 60)}`;
     }
     case "throw_statement": {
       let throwText = "";
@@ -238,7 +259,7 @@ function emitTier2(node: SyntaxNode): string | null {
         }
       }
       throwText = throwText.trim();
-      return `THROW:${throwText.length > 60 ? throwText.slice(0, 57) + "..." : throwText}`;
+      return `THROW:${collapseExpr(throwText, 60)}`;
     }
     case "try_statement":
       return "TRY";
@@ -271,7 +292,7 @@ function emitTier2(node: SyntaxNode): string | null {
       return "MATCH";
     case "return_expression": {
       const val = node.childCount > 1 ? node.child(1)?.text ?? "" : "";
-      return `RET ${val.length > 60 ? val.slice(0, 57) + "..." : val}`.trimEnd();
+      return `RET ${val ? collapseExpr(val, 60) : ""}`.trimEnd();
     }
     // Go
     case "defer_statement":
