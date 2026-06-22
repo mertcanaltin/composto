@@ -25,6 +25,8 @@ export interface PackResult {
   filesAtL3: number;
   targetFile?: string;
   targetDowngraded?: boolean;  // true if target file was too large for L3, fell back to L1
+  targetMatchedBy?: "declaration" | "filename" | "reference";  // coverage confidence
+  targetMissing?: boolean;     // a target was requested but not found at all
 }
 
 export interface PackOptions {
@@ -38,44 +40,72 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export function findTargetFile(files: FileInput[], target: string): string | null {
-  const t = escapeRegex(target);
+// How confidently the target was located — surfaced as a coverage signal so
+// the agent knows whether to trust the context or keep digging.
+export type TargetMatch = { path: string; matchedBy: "declaration" | "filename" | "reference" };
 
-  // Declaration patterns — ordered from most specific to least
-  // Each pattern is tried across all files before falling back to the next
-  const declarationPatterns = [
-    // JS/TS declarations
-    new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${t}\\b`),
-    new RegExp(`(?:export\\s+)?class\\s+${t}\\b`),
-    new RegExp(`(?:export\\s+)?interface\\s+${t}\\b`),
-    new RegExp(`(?:export\\s+)?type\\s+${t}\\b`),
-    new RegExp(`(?:export\\s+)?enum\\s+${t}\\b`),
-    new RegExp(`(?:export\\s+)?(?:const|let|var)\\s+${t}\\b`),
-    // Python
-    new RegExp(`\\bdef\\s+${t}\\b`),
-    // Rust
-    new RegExp(`\\bfn\\s+${t}\\b`),
-    new RegExp(`\\bstruct\\s+${t}\\b`),
-    new RegExp(`\\btrait\\s+${t}\\b`),
-    // Go
-    new RegExp(`\\bfunc\\s+${t}\\b`),
-    new RegExp(`\\btype\\s+${t}\\b`),
-    // Object method shorthand
-    new RegExp(`\\b${t}\\s*:\\s*(?:async\\s+)?function\\b`),
-    new RegExp(`\\b${t}\\s*\\([^)]*\\)\\s*\\{`),
-  ];
+// Identifier variants for a target — bridges naming conventions so a kebab-case
+// route key (widget-list-v2) finds a PascalCase class (WidgetListV2), camelCase
+// symbol, etc. Without this, --target silently misses and the agent reads raw.
+function identifierVariants(target: string): string[] {
+  const variants = new Set<string>([target]);
+  const parts = target.split(/[-_./\s]+/).filter(Boolean);
+  if (parts.length > 1) {
+    const cap = (p: string) => p.charAt(0).toUpperCase() + p.slice(1);
+    variants.add(parts.map(cap).join(""));                       // PascalCase
+    variants.add(parts[0] + parts.slice(1).map(cap).join(""));   // camelCase
+  }
+  return [...variants];
+}
 
-  // Try each pattern across all files before moving to the next pattern.
-  // This ensures declarations beat call sites regardless of file order.
-  for (const pattern of declarationPatterns) {
-    const match = files.find(f => pattern.test(f.code));
-    if (match) return match.path;
+const norm = (s: string) => s.replace(/[-_./\s]+/g, "").toLowerCase();
+
+export function resolveTarget(files: FileInput[], target: string): TargetMatch | null {
+  // 1. Declaration — strongest. Try each variant across all declaration kinds.
+  for (const variant of identifierVariants(target)) {
+    const t = escapeRegex(variant);
+    const declarationPatterns = [
+      new RegExp(`(?:export\\s+)?(?:async\\s+)?function\\s+${t}\\b`),
+      new RegExp(`(?:export\\s+)?class\\s+${t}\\b`),
+      new RegExp(`(?:export\\s+)?interface\\s+${t}\\b`),
+      new RegExp(`(?:export\\s+)?type\\s+${t}\\b`),
+      new RegExp(`(?:export\\s+)?enum\\s+${t}\\b`),
+      new RegExp(`(?:export\\s+)?(?:const|let|var)\\s+${t}\\b`),
+      new RegExp(`\\bdef\\s+${t}\\b`),                            // Python
+      new RegExp(`\\bfn\\s+${t}\\b`),                             // Rust
+      new RegExp(`\\bstruct\\s+${t}\\b`),
+      new RegExp(`\\btrait\\s+${t}\\b`),
+      new RegExp(`\\bfunc\\s+${t}\\b`),                           // Go
+      new RegExp(`\\btype\\s+${t}\\b`),
+      new RegExp(`\\b${t}\\s*:\\s*(?:async\\s+)?function\\b`),    // object method
+      new RegExp(`\\b${t}\\s*\\([^)]*\\)\\s*\\{`),
+    ];
+    for (const pattern of declarationPatterns) {
+      const match = files.find(f => pattern.test(f.code));
+      if (match) return { path: match.path, matchedBy: "declaration" };
+    }
   }
 
-  // Last-resort fallback: call site anywhere
-  const fallback = new RegExp(`\\b${t}\\s*\\(`);
-  const match = files.find(f => fallback.test(f.code));
-  return match ? match.path : null;
+  // 2. Filename — the target maps to a file's basename (separator-insensitive).
+  const targetNorm = norm(target);
+  const byName = files.find(f => {
+    const base = f.path.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
+    return norm(base) === targetNorm;
+  });
+  if (byName) return { path: byName.path, matchedBy: "filename" };
+
+  // 3. Reference — the name appears as a quoted literal (registration key) or a
+  // call site. Kept precise (not a loose substring) so e.g. "foo.bar" does not
+  // match inside an unrelated longer string.
+  const ref = new RegExp(`["'\`]${escapeRegex(target)}["'\`]|\\b${escapeRegex(target)}\\s*\\(`);
+  const byRef = files.find(f => ref.test(f.code));
+  if (byRef) return { path: byRef.path, matchedBy: "reference" };
+
+  return null;
+}
+
+export function findTargetFile(files: FileInput[], target: string): string | null {
+  return resolveTarget(files, target)?.path ?? null;
 }
 
 // Find files that import from or are imported by the target file
@@ -116,11 +146,17 @@ export async function packContext(
 
   // Resolve target file if specified
   let targetPath: string | null = null;
+  let targetMatchedBy: TargetMatch["matchedBy"] | undefined;
+  let targetMissing = false;
   let relatedFiles = new Set<string>();
   if (target) {
-    targetPath = findTargetFile(files, target);
-    if (targetPath) {
+    const resolved = resolveTarget(files, target);
+    if (resolved) {
+      targetPath = resolved.path;
+      targetMatchedBy = resolved.matchedBy;
       relatedFiles = findRelatedFiles(files, targetPath);
+    } else {
+      targetMissing = true;
     }
   }
 
@@ -241,5 +277,7 @@ export async function packContext(
     filesAtL3,
     targetFile: targetPath ?? undefined,
     targetDowngraded,
+    targetMatchedBy,
+    targetMissing,
   };
 }

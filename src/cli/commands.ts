@@ -319,6 +319,7 @@ export async function runContext(
         budget: result.budget,
         totalTokens: result.totalTokens,
         target: result.targetFile ?? null,
+        coverage: result.targetMissing ? "none" : (result.targetMatchedBy ?? null),
         targetDowngraded: result.targetDowngraded ?? false,
         filesAtL3: result.filesAtL3,
         filesAtL1: result.filesAtL1,
@@ -335,9 +336,15 @@ export async function runContext(
   }
 
   if (target && !result.targetFile) {
-    console.log(`  Warning: symbol "${target}" not found in any file. Showing general context.\n`);
+    console.log(`  coverage: none — "${target}" not found in any file. Showing general context.`);
+    console.log(`  Try a different name (symbol/file/key) or raise --budget.\n`);
   } else if (result.targetFile) {
-    console.log(`  Target: ${result.targetFile} (contains ${target})`);
+    const conf =
+      result.targetMatchedBy === "declaration" ? "high (exact symbol)" :
+      result.targetMatchedBy === "filename" ? "medium (matched by filename — verify it's the intended file)" :
+      "low (only found as a reference/string — the agent may need a more specific symbol)";
+    console.log(`  Target: ${result.targetFile} (matched ${target})`);
+    console.log(`  coverage: ${conf}`);
     if (result.targetDowngraded) {
       console.log(`  Note: target file too large for raw mode — using L1 IR instead. Increase --budget for L3.`);
     }
