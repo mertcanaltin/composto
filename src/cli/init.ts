@@ -29,6 +29,14 @@ export interface InitOptions {
    * direct agent queries (composto_ir/_context/_scan/_blastradius).
    */
   withMcp?: boolean;
+  /**
+   * Register the PostToolUse Read-compression hook (claude-code only). When on,
+   * large full reads of code files are replaced with structural IR before they
+   * enter the agent's context, saving tokens on every subsequent turn (tallied
+   * in `composto stats`). Opt-in: it changes what the agent sees on a Read, so
+   * it ships off until validated in real workflows. Ranged reads are left raw.
+   */
+  withCompress?: boolean;
 }
 
 export interface InitResult {
@@ -255,9 +263,26 @@ function initClaudeCode(
       "",
   );
 
+  const hooksOut: Record<string, unknown> = { ...existingHooks, PreToolUse: preToolUse };
+
+  if (options.withCompress) {
+    const postReadEntry = {
+      matcher: "Read",
+      hooks: [
+        { type: "command", command: "composto hook claude-code posttooluse" },
+      ],
+    };
+    hooksOut.PostToolUse = mergeHookArray(
+      existingHooks.PostToolUse,
+      postReadEntry,
+      (e) =>
+        ((e as { hooks?: Array<{ command?: string }> })?.hooks?.[0]?.command) ?? "",
+    );
+  }
+
   const merged: Record<string, unknown> = {
     ...existing,
-    hooks: { ...existingHooks, PreToolUse: preToolUse },
+    hooks: hooksOut,
   };
   // Only emit mcpServers if there's actually an entry to write — avoids
   // creating an empty mcpServers: {} on greenfield Lean Hook installs.

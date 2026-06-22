@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { openDatabase } from "../memory/db.js";
 import { runMigrations } from "../memory/schema.js";
 import { recentSummary, type Summary } from "../memory/telemetry/hook-invocations.js";
+import { readSavings } from "../memory/telemetry/savings.js";
 
 export interface StatsOpts {
   cwd: string;
@@ -48,9 +49,12 @@ export function runStats(opts: StatsOpts): StatsResult {
   try {
     runMigrations(db);
     const summary = recentSummary(db);
+    const savings = readSavings(composstoDir);
     return {
       action: "printed",
-      output: opts.json ? JSON.stringify(summary, null, 2) : renderSummary(summary),
+      output: opts.json
+        ? JSON.stringify({ ...summary, savings }, null, 2)
+        : renderSummary(summary) + renderSavings(savings.totalSavedTokens, savings.compressedReads),
     };
   } finally {
     db.close();
@@ -60,6 +64,19 @@ export function runStats(opts: StatsOpts): StatsResult {
 function pct(n: number, total: number): string {
   if (total === 0) return "0%";
   return `${Math.round((n / total) * 100)}%`;
+}
+
+// Sonnet input price, $3 / Mtok — the saving the compression hook represents.
+const INPUT_PRICE_PER_MTOK = 3;
+
+export function renderSavings(totalSavedTokens: number, compressedReads: number): string {
+  if (totalSavedTokens <= 0) return "";
+  const dollars = (totalSavedTokens / 1_000_000) * INPUT_PRICE_PER_MTOK;
+  return (
+    `\n\ncompression hook:\n` +
+    `  tokens saved:  ${totalSavedTokens.toLocaleString()} across ${compressedReads} reads` +
+    ` (~$${dollars.toFixed(2)} at $${INPUT_PRICE_PER_MTOK}/Mtok input)`
+  );
 }
 
 export function renderSummary(s: Summary): string {

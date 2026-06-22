@@ -11,12 +11,13 @@
 
 import { defaultDeps, type HookDeps } from "./api-deps.js";
 import { runClaudeCodeHook } from "./adapters/claude-code.js";
+import { runClaudeCodePostRead } from "./adapters/claude-code-read.js";
 import { runCursorHook } from "./adapters/cursor.js";
 import { runGeminiCliHook } from "./adapters/gemini-cli.js";
 import type { HookMetadata } from "./adapters/claude-code.js";
 
 export type Platform = "claude-code" | "cursor" | "gemini-cli";
-export type Event = "pretooluse" | "beforetool";
+export type Event = "pretooluse" | "posttooluse" | "beforetool";
 
 export interface DispatchOpts {
   platform: Platform;
@@ -42,6 +43,7 @@ export async function runHookDispatch(
   switch (p) {
     case "claude-code":
       if (e === "pretooluse") return runClaudeCodeHook(hookOpts, deps);
+      if (e === "posttooluse") return runClaudeCodePostRead(hookOpts);
       throw new Error(`unknown event for claude-code: ${e}`);
     case "cursor":
       if (e === "pretooluse") return runCursorHook(hookOpts, deps);
