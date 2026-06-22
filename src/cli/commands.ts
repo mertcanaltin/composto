@@ -16,6 +16,7 @@ import { runQualityBenchmark } from "../benchmark/quality.js";
 import { packContext, type FileInput } from "../context/packer.js";
 import { estimateTokens } from "../benchmark/tokenizer.js";
 import { collectFiles } from "../utils/collectFiles.js";
+import { dollarsFor, buildBadgeMarkdown, buildShareLine } from "./score-format.js";
 import type { TrendAnalysis, Finding } from "../types.js";
 import { MemoryAPI } from "../memory/api.js";
 
@@ -213,6 +214,70 @@ export async function runBenchmarkQuality(projectPath: string, filePath: string)
   if (result.savedPercent > 0) {
     console.log(`  Verdict: ${result.savedPercent.toFixed(1)}% fewer tokens with IR.`);
   }
+}
+
+export async function runScore(projectPath: string, json?: boolean): Promise<void> {
+  const files = collectFiles(projectPath, ALL_EXTENSIONS);
+  const results: FileResult[] = [];
+  for (const file of files) {
+    const code = readFileSync(file, "utf-8");
+    results.push(await benchmarkFile(code, relative(projectPath, file)));
+  }
+  const summary = summarize(results);
+
+  // Health: riskiest files from git history (advisory color the model can't derive).
+  const config = loadConfig(projectPath);
+  let hotspots: Array<{ file: string; changesInLast30Commits: number; bugFixRatio: number }> = [];
+  try {
+    const entries = getGitLog(projectPath, 100);
+    hotspots = detectHotspots(entries, {
+      threshold: config.trends.hotspotThreshold,
+      fixRatioThreshold: config.trends.bugFixRatioThreshold,
+    });
+  } catch {
+    hotspots = [];
+  }
+
+  const rawDollars = dollarsFor(summary.totalRaw);
+  const compostoDollars = dollarsFor(summary.totalIRL1);
+  const topRisky = hotspots.slice(0, 3);
+
+  if (json) {
+    console.log(
+      JSON.stringify({
+        files: summary.fileCount,
+        rawTokens: summary.totalRaw,
+        compostoTokens: summary.totalIRL1,
+        savedPercent: Number(summary.totalSavedPercent.toFixed(1)),
+        rawCostUsd: Number(rawDollars.toFixed(4)),
+        compostoCostUsd: Number(compostoDollars.toFixed(4)),
+        riskyFiles: topRisky.map(h => ({ file: h.file, changes: h.changesInLast30Commits, fixRatio: Number(h.bugFixRatio.toFixed(2)) })),
+        badge: buildBadgeMarkdown(summary.totalSavedPercent),
+        share: buildShareLine(summary.fileCount, summary.totalRaw, summary.totalIRL1, summary.totalSavedPercent),
+      }),
+    );
+    return;
+  }
+
+  const pct = summary.totalSavedPercent.toFixed(1);
+  console.log(`\n  composto score — ${summary.fileCount} files\n`);
+  console.log(`  AI context cost`);
+  console.log(`    raw:       ${summary.totalRaw.toLocaleString()} tokens  ($${rawDollars.toFixed(2)}/full load)`);
+  console.log(`    composto:  ${summary.totalIRL1.toLocaleString()} tokens  ($${compostoDollars.toFixed(2)}/full load)`);
+  console.log(`    saved:     ${pct}%\n`);
+
+  if (topRisky.length > 0) {
+    console.log(`  Riskiest files an agent would stumble on (from git history)`);
+    for (const h of topRisky) {
+      console.log(`    ${h.file}  (${h.changesInLast30Commits} changes, ${Math.round(h.bugFixRatio * 100)}% fix-ratio)`);
+    }
+    console.log();
+  }
+
+  console.log(`  Badge (paste in your README):`);
+  console.log(`    ${buildBadgeMarkdown(summary.totalSavedPercent)}\n`);
+  console.log(`  Share:`);
+  console.log(`    ${buildShareLine(summary.fileCount, summary.totalRaw, summary.totalIRL1, summary.totalSavedPercent)}\n`);
 }
 
 export async function runContext(

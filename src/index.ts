@@ -1,6 +1,6 @@
 import {
   runScan, runTrends, runIR, runBenchmark, runBenchmarkQuality, runContext,
-  runImpact, runIndex, runIndexStatus,
+  runImpact, runIndex, runIndexStatus, runScore,
 } from "./cli/commands.js";
 import { runInit, type InitClient } from "./cli/init.js";
 import { runHookDispatch, type Platform, type Event as HookEvent } from "./cli/hook/dispatcher.js";
@@ -60,6 +60,11 @@ switch (command) {
   case "benchmark": {
     const projectPath = resolve(args[1] ?? ".");
     await runBenchmark(projectPath);
+    break;
+  }
+  case "score": {
+    const projectPath = resolve(args[1] && !args[1].startsWith("--") ? args[1] : ".");
+    await runScore(projectPath, args.includes("--json"));
     break;
   }
   case "benchmark-quality": {
@@ -221,6 +226,7 @@ switch (command) {
     console.log("  trends [path]                         Analyze codebase health trends");
     console.log("  ir <file> [layer]                     Generate IR for a file (L0|L1|L2|L3)");
     console.log("  benchmark [path]                      Benchmark IR token savings");
+    console.log("  score [path] [--json]                Shareable scorecard: what your repo costs an AI + risk hotspots");
     console.log("  benchmark-quality <file>              Compare AI responses: raw vs IR");
     console.log("  context [path] --budget N             Smart context within token budget");
     console.log("  context [path] --target <symbol>      Target file as raw, surrounding as IR");
