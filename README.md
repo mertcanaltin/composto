@@ -27,15 +27,16 @@ OUT FN:computeScoreAndConfidence(signals: Signal[], ctx: ConfidenceContext)
 ## Use it in 3 steps
 
 ```bash
-# 1. Install
+# 1. See what your repo costs an AI — zero install, no API key, ~2s
+cd your-project
+npx composto-ai score          # scorecard: tokens, $/load, risk hotspots, a README badge
+
+# 2. Install
 npm install -g composto-ai
 
-# 2. See the value on your own repo (local, no API key, ~2s)
-cd your-project
-composto benchmark .            # token savings + a shareable card
-
 # 3. Wire it into your AI agent so it gets compact context automatically
-composto init --client=claude-code     # or cursor, or gemini-cli
+composto init --client=claude-code                  # or cursor, or gemini-cli
+composto init --client=claude-code --with-compress  # also auto-compress large Reads (saves tokens; see `stats`)
 # Restart your client. Existing settings are merged, never overwritten.
 ```
 
@@ -45,11 +46,14 @@ That's it. Your agent now reads structure-preserving IR instead of raw files.
 <summary>More commands</summary>
 
 ```bash
+composto score .                       # shareable scorecard + README badge (add --json to pipe)
 composto ir src/app.ts                 # compress one file to IR (L0/L1/L2/L3)
 composto context src/ --budget 4000    # pack a directory into a token budget
 composto context . --target <symbol>   # target file raw, surroundings as IR
+composto context . --json              # machine-readable context for piping into agents
+composto proxy --port 8787             # compression proxy — point your LLM base URL at it
 composto impact src/auth/login.ts      # advisory causal history for a file
-composto stats                         # hook telemetry (local-only)
+composto stats                         # hook telemetry + cumulative tokens saved
 ```
 </details>
 
@@ -169,8 +173,14 @@ Composto uses [tree-sitter](https://tree-sitter.github.io/) to parse your code i
 ## Commands
 
 ```bash
+# Shareable scorecard: AI context cost + risk hotspots + a README badge
+composto score .              # add --json to pipe into scripts/agents
+
 # Benchmark token savings across your project
 composto benchmark .
+
+# Run the compression proxy — point your LLM client's base URL at it
+composto proxy --port 8787    # swaps raw code blocks for IR in-flight (BYOK)
 
 # Generate IR at different detail levels
 composto ir <file> L0    # Structure map (~10 tokens) — just names
