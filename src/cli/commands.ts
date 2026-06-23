@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { relative, join } from "node:path";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { relative, join, dirname } from "node:path";
 import { loadConfig } from "../config/loader.js";
 import { runDetector } from "../watcher/detector.js";
 import { generateLayer } from "../ir/layers.js";
@@ -214,6 +214,64 @@ export async function runBenchmarkQuality(projectPath: string, filePath: string)
   if (result.savedPercent > 0) {
     console.log(`  Verdict: ${result.savedPercent.toFixed(1)}% fewer tokens with IR.`);
   }
+}
+
+// Current git HEAD short SHA, for the staleness stamp. "unknown" if not a repo.
+function headSha(projectPath: string): string {
+  try {
+    const head = readFileSync(join(projectPath, ".git", "HEAD"), "utf8").trim();
+    const ref = head.startsWith("ref:") ? head.slice(4).trim() : null;
+    const full = ref
+      ? readFileSync(join(projectPath, ".git", ref), "utf8").trim()
+      : head;
+    return full.slice(0, 8);
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * Build the project navigation map (compressed IR index of every file) and
+ * write it to outPath. Self-describing header + a git-SHA staleness stamp so an
+ * agent knows whether to trust it or run `composto reindex`. Returns size info.
+ */
+export async function writeProjectIndex(
+  projectPath: string,
+  budget: number,
+  outPath: string,
+): Promise<{ tokens: number; files: number; sha: string }> {
+  const files = collectFiles(projectPath, ALL_EXTENSIONS);
+  const fileInputs: FileInput[] = files.map(file => {
+    const code = readFileSync(file, "utf-8");
+    return { path: relative(projectPath, file), code, rawTokens: estimateTokens(code) };
+  });
+
+  const config = loadConfig(projectPath);
+  let hotspots: { file: string }[] = [];
+  try {
+    hotspots = detectHotspots(getGitLog(projectPath, 100), {
+      threshold: config.trends.hotspotThreshold,
+      fixRatioThreshold: config.trends.bugFixRatioThreshold,
+    });
+  } catch { /* no git history — fine */ }
+
+  const result = await packContext(fileInputs, { budget, hotspots: hotspots as never });
+  const sha = headSha(projectPath);
+
+  const header =
+    `# Composto navigation map  (generated at ${sha}, ${files.length} files, ~${result.totalTokens} tokens)\n\n` +
+    `COMPRESSED MAP, not raw source. Use it to LOCATE the right files for a task,\n` +
+    `then open those files directly instead of searching/reading broadly.\n` +
+    `If your git HEAD differs from ${sha}, this map may be stale: run \`composto reindex\`.\n`;
+
+  const body = result.entries
+    .map(e => `\n## ${e.path}${e.layer === "L0" ? " (structure)" : ""}\n${e.ir}`)
+    .join("\n");
+
+  const content = header + body + "\n";
+  mkdirSync(dirname(outPath), { recursive: true });
+  writeFileSync(outPath, content);
+  return { tokens: estimateTokens(content), files: files.length, sha };
 }
 
 export async function runScore(projectPath: string, json?: boolean): Promise<void> {

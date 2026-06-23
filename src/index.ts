@@ -1,6 +1,6 @@
 import {
   runScan, runTrends, runIR, runBenchmark, runBenchmarkQuality, runContext,
-  runImpact, runIndex, runIndexStatus, runScore,
+  runImpact, runIndex, runIndexStatus, runScore, writeProjectIndex,
 } from "./cli/commands.js";
 import { runInit, type InitClient } from "./cli/init.js";
 import { runHookDispatch, type Platform, type Event as HookEvent } from "./cli/hook/dispatcher.js";
@@ -65,6 +65,17 @@ switch (command) {
   case "score": {
     const projectPath = resolve(args[1] && !args[1].startsWith("--") ? args[1] : ".");
     await runScore(projectPath, args.includes("--json"));
+    break;
+  }
+  case "reindex": {
+    const projectPath = resolve(args[1] && !args[1].startsWith("--") ? args[1] : ".");
+    const budgetStr = args.find(a => a.startsWith("--budget="))?.slice("--budget=".length);
+    const budget = budgetStr ? parseInt(budgetStr, 10) : 6000;
+    const outPath = join(projectPath, ".composto", "context.md");
+    const r = await writeProjectIndex(projectPath, budget, outPath);
+    console.log(`composto reindex — wrote .composto/context.md`);
+    console.log(`  ${r.files} files → ~${r.tokens} tokens, generated at ${r.sha}`);
+    console.log(`  Reference it in your agent: @.composto/context.md`);
     break;
   }
   case "benchmark-quality": {
@@ -148,6 +159,15 @@ switch (command) {
     for (const f of result.written) console.log(`  wrote   ${f}`);
     for (const f of result.merged) console.log(`  merged  ${f}`);
     for (const f of result.skipped) console.log(`  skipped ${f} (already exists)`);
+
+    if (args.includes("--with-index")) {
+      const outPath = join(resolve("."), ".composto", "context.md");
+      const r = await writeProjectIndex(resolve("."), 6000, outPath);
+      console.log(`  wrote   .composto/context.md (${r.files} files → ~${r.tokens} tokens, @ ${r.sha})`);
+      console.log(`\nNavigation map ready. Tell your agent to consult it first:`);
+      console.log(`  "@.composto/context.md to find files before searching the repo"`);
+      console.log(`  Refresh after code changes: composto reindex`);
+    }
     console.log("\nRestart your AI client and check that 'composto' MCP is green.");
     console.log(
       "Composto collects local-only hook telemetry to help you monitor agent behavior. " +
@@ -227,6 +247,7 @@ switch (command) {
     console.log("  ir <file> [layer]                     Generate IR for a file (L0|L1|L2|L3)");
     console.log("  benchmark [path]                      Benchmark IR token savings");
     console.log("  score [path] [--json]                Shareable scorecard: what your repo costs an AI + risk hotspots");
+    console.log("  reindex [path] [--budget=N]          Write/refresh the navigation map at .composto/context.md (SHA-stamped)");
     console.log("  benchmark-quality <file>              Compare AI responses: raw vs IR");
     console.log("  context [path] --budget N             Smart context within token budget");
     console.log("  context [path] --target <symbol>      Target file as raw, surrounding as IR");
@@ -239,6 +260,7 @@ switch (command) {
     console.log("                                          --with-mcp   register the composto MCP server (5 tools)");
     console.log("                                          --with-rules write .cursor/rules/composto.mdc (cursor only)");
     console.log("                                          --with-compress  auto-compress large code Reads to IR (claude-code; saves tokens, see `stats`)");
+    console.log("                                          --with-index     generate .composto/context.md navigation map (cut blind-exploration tokens)");
     console.log("  hook <platform> <event>               Run BlastRadius hook (reads tool JSON from stdin)");
     console.log("  stats [--json] [--disable]            Show hook telemetry (last 7d); --disable opts out");
     console.log("  proxy [--port N]                      Run the compression proxy (point your LLM base URL at it)");
