@@ -7,12 +7,6 @@
     "composto": "dist/index.js",
     "composto-mcp": "dist/mcp/server.js"
   },
-  "exports": {
-    "./core": {
-      "types": "./dist/core/index.d.ts",
-      "import": "./dist/core/index.js"
-    }
-  },
   "files": [
     "dist",
     "grammars",
