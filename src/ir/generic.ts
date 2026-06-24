@@ -27,7 +27,7 @@ export function isGenericLang(filePath: string): boolean {
 export { GENERIC_EXTENSIONS };
 
 const TYPE_DECL =
-  /^(?:template\s*<[^>]*>\s*)?(?:(?:public|private|protected|final|abstract|static|sealed|export|pub)\s+)*(class|struct|interface|enum|trait|union|record)\s+(\w+)([^{;]*)/;
+  /^(?:template\s*<[^>]*>\s*)?(?:(?:public|private|protected|final|abstract|static|sealed|export|pub)\s+)*(class|struct|interface|enum|trait|union|record)(?:\s+(?:class|struct))?\s+(\w+)([^{;]*)/;
 
 // `name(args)` that opens a body `{` or ends a prototype `;`, allowing trailing
 // qualifiers (const/noexcept/override/throws/return-type arrow/base-init).
@@ -68,9 +68,17 @@ export function extractGenericStructure(code: string, _filePath: string): string
     if ((m = line.match(FUNC))) {
       const name = m[1];
       if (CONTROL.has(name)) continue;
-      // A bare `foo();` call (no type/qualifier before the name) is not a decl.
-      const beforeName = line.slice(0, line.indexOf(name + "(")).trim();
-      if (m[2] === ";" && beforeName === "") continue;
+      const idx = line.indexOf(name + "(");
+      const charBefore = idx > 0 ? line[idx - 1] : "";
+      const beforeName = line.slice(0, idx).trim();
+      // A `;`-terminated `name(...)` is a prototype only if it isn't really a
+      // CALL site. Reject the common call shapes: qualified/member calls
+      // (std::sort(), obj.f(), p->f()) and assignment results (x = f()).
+      if (m[2] === ";") {
+        if (beforeName === "") continue;                       // bare `foo();`
+        if (charBefore === "." || charBefore === ":" || charBefore === ">") continue; // member/qualified
+        if (line.includes("=")) continue;                      // `T x = f();`
+      }
       out.push(`FN:${name}`);
       continue;
     }

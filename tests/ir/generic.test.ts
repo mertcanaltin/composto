@@ -10,6 +10,8 @@ const CPP = `// ada url parser
 
 namespace ada {
 
+enum class SchemeType : uint8_t { HTTP, HTTPS };
+
 struct url_components {
   uint32_t protocol_end;
   uint32_t host_start;
@@ -27,6 +29,8 @@ result<url_aggregator> parse(std::string_view input, const url* base_url) {
   if (input.empty()) {
     return result<url_aggregator>{};
   }
+  std::sort(parts.begin(), parts.end());
+  int n = compute(input);
   return parse_url(input, base_url);
 }
 
@@ -59,6 +63,16 @@ describe("extractGenericStructure (C++)", () => {
     expect(ir).toContain("CLASS:url_components");
     expect(ir).toContain("CLASS:url_aggregator");
     expect(ir).toContain("url_base"); // base retained
+  });
+
+  it("handles scoped enums (enum class) without losing the name", () => {
+    expect(ir).toContain("ENUM:SchemeType");
+    expect(ir).not.toContain("ENUM:class");
+  });
+
+  it("excludes call sites: qualified calls and assignment results", () => {
+    expect(ir).not.toContain("FN:sort");    // std::sort(...) call
+    expect(ir).not.toContain("FN:compute"); // int n = compute(...) call
   });
 
   it("captures function definitions and member prototypes", () => {
