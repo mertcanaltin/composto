@@ -101,7 +101,7 @@ export async function runIR(projectPath: string, filePath: string, layer: string
   console.log(result);
 }
 
-const ALL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs"];
+export const ALL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs"];
 
 export async function runBenchmark(projectPath: string): Promise<void> {
   console.log(`composto v${VERSION} — benchmark\n`);
@@ -235,11 +235,18 @@ function headSha(projectPath: string): string {
  * write it to outPath. Self-describing header + a git-SHA staleness stamp so an
  * agent knows whether to trust it or run `composto reindex`. Returns size info.
  */
-export async function writeProjectIndex(
+/**
+ * Build the navigation map content in memory (no disk write). Shared by the
+ * one-shot `reindex`/`init --with-index` path and the long-running `composto
+ * start` daemon, which keeps the result warm and re-runs it on file changes.
+ * When `staleHint` is "live", the header tells the agent the map is kept fresh
+ * by a running daemon instead of pointing it at `composto reindex`.
+ */
+export async function buildProjectIndex(
   projectPath: string,
   budget: number,
-  outPath: string,
-): Promise<{ tokens: number; files: number; sha: string }> {
+  staleHint: "manual" | "live" = "manual",
+): Promise<{ content: string; tokens: number; files: number; sha: string }> {
   const files = collectFiles(projectPath, ALL_EXTENSIONS);
   const fileInputs: FileInput[] = files.map(file => {
     const code = readFileSync(file, "utf-8");
@@ -258,20 +265,38 @@ export async function writeProjectIndex(
   const result = await packContext(fileInputs, { budget, hotspots: hotspots as never });
   const sha = headSha(projectPath);
 
+  const freshness = staleHint === "live"
+    ? `Kept fresh by a running \`composto start\` daemon — this map tracks your working tree.\n`
+    : `If your git HEAD differs from ${sha}, this map may be stale: run \`composto reindex\`.\n`;
+
   const header =
     `# Composto navigation map  (generated at ${sha}, ${files.length} files, ~${result.totalTokens} tokens)\n\n` +
     `COMPRESSED MAP, not raw source. Use it to LOCATE the right files for a task,\n` +
     `then open those files directly instead of searching/reading broadly.\n` +
-    `If your git HEAD differs from ${sha}, this map may be stale: run \`composto reindex\`.\n`;
+    freshness;
 
   const body = result.entries
     .map(e => `\n## ${e.path}${e.layer === "L0" ? " (structure)" : ""}\n${e.ir}`)
     .join("\n");
 
   const content = header + body + "\n";
+  return { content, tokens: estimateTokens(content), files: files.length, sha };
+}
+
+/**
+ * Build the project navigation map (compressed IR index of every file) and
+ * write it to outPath. Self-describing header + a git-SHA staleness stamp so an
+ * agent knows whether to trust it or run `composto reindex`. Returns size info.
+ */
+export async function writeProjectIndex(
+  projectPath: string,
+  budget: number,
+  outPath: string,
+): Promise<{ tokens: number; files: number; sha: string }> {
+  const r = await buildProjectIndex(projectPath, budget);
   mkdirSync(dirname(outPath), { recursive: true });
-  writeFileSync(outPath, content);
-  return { tokens: estimateTokens(content), files: files.length, sha };
+  writeFileSync(outPath, r.content);
+  return { tokens: r.tokens, files: r.files, sha: r.sha };
 }
 
 export async function runScore(projectPath: string, json?: boolean): Promise<void> {

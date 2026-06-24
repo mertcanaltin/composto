@@ -6,6 +6,8 @@ import { runInit, type InitClient } from "./cli/init.js";
 import { runHookDispatch, type Platform, type Event as HookEvent } from "./cli/hook/dispatcher.js";
 import { runStats } from "./cli/stats.js";
 import { startProxy } from "./proxy/server.js";
+import { startIndexDaemon } from "./daemon/index-server.js";
+import { writeHandoff, readLatestHandoff, formatHandoff } from "./handoff/writer.js";
 import { openDatabase } from "./memory/db.js";
 import { runMigrations } from "./memory/schema.js";
 import { recordInvocation } from "./memory/telemetry/hook-invocations.js";
@@ -86,6 +88,41 @@ switch (command) {
     }
     await runBenchmarkQuality(resolve("."), resolve(filePath));
     break;
+  }
+  case "handoff": {
+    const projectPath = resolve(args[1] && !args[1].startsWith("--") ? args[1] : ".");
+    const json = args.includes("--json");
+    const noSave = args.includes("--no-save");
+
+    if (args.includes("--latest")) {
+      const latest = readLatestHandoff(projectPath);
+      if (!latest) {
+        console.error("No saved handoff yet — run `composto handoff` first.");
+        process.exit(1);
+      }
+      console.log(json ? JSON.stringify(latest) : formatHandoff(latest));
+      break;
+    }
+
+    const h = await writeHandoff(projectPath, { noSave });
+    if (json) {
+      console.log(JSON.stringify(h));
+    } else {
+      console.log(formatHandoff(h));
+      if (!noSave) console.log(`\n  saved   .composto/handoff.json  (combined ${h.combinedHash})`);
+    }
+    break;
+  }
+  case "start": {
+    const projectPath = resolve(args[1] && !args[1].startsWith("--") ? args[1] : ".");
+    const budgetStr = args.find(a => a.startsWith("--budget="))?.slice("--budget=".length);
+    const budget = budgetStr ? parseInt(budgetStr, 10) : 6000;
+    const outPath = join(projectPath, ".composto", "context.md");
+    const handle = await startIndexDaemon({ projectPath, budget, outPath });
+    const shutdown = () => { handle.stop(); console.log("\ncomposto: stopped"); process.exit(0); };
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
+    break; // watcher keeps the process alive
   }
   case "proxy": {
     const portFlag = args.indexOf("--port");
@@ -248,6 +285,8 @@ switch (command) {
     console.log("  benchmark [path]                      Benchmark IR token savings");
     console.log("  score [path] [--json]                Shareable scorecard: what your repo costs an AI + risk hotspots");
     console.log("  reindex [path] [--budget=N]          Write/refresh the navigation map at .composto/context.md (SHA-stamped)");
+    console.log("  start [path] [--budget=N]            Keep the navigation map live: in-memory build + file watcher, auto-refreshes .composto/context.md");
+    console.log("  handoff [path] [--json] [--latest]   Cross-agent handoff: layered prefix/delta + hashes, changed files as IR (.composto/handoff.json)");
     console.log("  benchmark-quality <file>              Compare AI responses: raw vs IR");
     console.log("  context [path] --budget N             Smart context within token budget");
     console.log("  context [path] --target <symbol>      Target file as raw, surrounding as IR");
