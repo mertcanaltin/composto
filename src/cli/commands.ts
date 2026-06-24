@@ -101,7 +101,10 @@ export async function runIR(projectPath: string, filePath: string, layer: string
   console.log(result);
 }
 
-export const ALL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs"];
+import { ALL_EXTENSIONS } from "../ir/extensions.js";
+import { analyzeCoverage, coverageWarning } from "../ir/coverage.js";
+// Re-exported so existing importers (daemon, handoff) keep working.
+export { ALL_EXTENSIONS };
 
 export async function runBenchmark(projectPath: string): Promise<void> {
   console.log(`composto v${VERSION} — benchmark\n`);
@@ -269,11 +272,16 @@ export async function buildProjectIndex(
     ? `Kept fresh by a running \`composto start\` daemon — this map tracks your working tree.\n`
     : `If your git HEAD differs from ${sha}, this map may be stale: run \`composto reindex\`.\n`;
 
+  // Be honest about what the map can't see — a partial map that looks complete
+  // is worse than no map (see the C++ `ada` repo: 11 Python files, 0 .cpp).
+  const warning = coverageWarning(analyzeCoverage(projectPath));
+
   const header =
     `# Composto navigation map  (generated at ${sha}, ${files.length} files, ~${result.totalTokens} tokens)\n\n` +
     `COMPRESSED MAP, not raw source. Use it to LOCATE the right files for a task,\n` +
     `then open those files directly instead of searching/reading broadly.\n` +
-    freshness;
+    freshness +
+    warning;
 
   const body = result.entries
     .map(e => `\n## ${e.path}${e.layer === "L0" ? " (structure)" : ""}\n${e.ir}`)
