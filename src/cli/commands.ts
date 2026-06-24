@@ -102,6 +102,7 @@ export async function runIR(projectPath: string, filePath: string, layer: string
 }
 
 import { ALL_EXTENSIONS } from "../ir/extensions.js";
+import { GENERIC_EXTENSIONS } from "../ir/generic.js";
 import { analyzeCoverage, coverageWarning } from "../ir/coverage.js";
 // Re-exported so existing importers (daemon, handoff) keep working.
 export { ALL_EXTENSIONS };
@@ -250,7 +251,7 @@ export async function buildProjectIndex(
   budget: number,
   staleHint: "manual" | "live" = "manual",
 ): Promise<{ content: string; tokens: number; files: number; sha: string }> {
-  const files = collectFiles(projectPath, ALL_EXTENSIONS);
+  const files = collectFiles(projectPath, [...ALL_EXTENSIONS, ...GENERIC_EXTENSIONS]);
   const fileInputs: FileInput[] = files.map(file => {
     const code = readFileSync(file, "utf-8");
     return { path: relative(projectPath, file), code, rawTokens: estimateTokens(code) };

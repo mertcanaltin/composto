@@ -4,8 +4,14 @@ import { fingerprintFile } from "./fingerprint.js";
 import { annotateIR } from "./health.js";
 import { astWalkIR } from "./ast-walker.js";
 import { estimateTokens } from "../benchmark/tokenizer.js";
+import { isGenericLang, extractGenericStructure } from "./generic.js";
 
 export function generateL0(code: string, filePath: string): string {
+  // Tier-2 braced languages (C/C++/Java/...) have no tree-sitter grammar yet —
+  // use the grammar-free structural extractor instead of the TS-tuned classifier.
+  if (isGenericLang(filePath)) {
+    return `${filePath}\n${extractGenericStructure(code, filePath)}`;
+  }
   const structure = extractStructure(code);
   const topLevel = structure.filter(
     (s) => s.indent === 0 && ["function-start", "type-start", "export"].includes(s.type)
@@ -22,7 +28,9 @@ export function generateL0(code: string, filePath: string): string {
 }
 
 export async function generateL1(code: string, filePath: string, health: HealthAnnotation | null): Promise<string> {
-  const ir = await astWalkIR(code, filePath) ?? fingerprintFile(code, 0.75);
+  const ir = isGenericLang(filePath)
+    ? extractGenericStructure(code, filePath)
+    : (await astWalkIR(code, filePath) ?? fingerprintFile(code, 0.75));
   // Fall back to the raw source when the IR is not a real win:
   //  - empty/whitespace-only: the engine found no structure (generated/data
   //    files). An empty IR is total information loss, not "100% compression".

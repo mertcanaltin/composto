@@ -1,21 +1,21 @@
 import { relative } from "node:path";
 import { collectFiles } from "../utils/collectFiles.js";
 import { ALL_EXTENSIONS } from "./extensions.js";
+import { GENERIC_EXTENSIONS } from "./generic.js";
 
 // Code-ish extensions Composto might encounter. The point is not to parse these
 // (most aren't supported yet) but to NOTICE them, so the navigation map can tell
 // the truth about what it cannot see instead of silently shrinking to whatever
 // few languages are supported — the failure mode the `ada` (C++) repo exposed.
 const CODE_UNIVERSE = [
-  ...ALL_EXTENSIONS,
-  ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx", // C/C++
-  ".java", ".kt", ".kts", ".scala",                          // JVM
-  ".cs",                                                     // C#
-  ".rb", ".php", ".swift", ".m", ".mm",                     // misc
-  ".lua", ".ex", ".exs", ".sol", ".sh", ".bash",            // misc
+  ...ALL_EXTENSIONS,       // Tier 1: deep tree-sitter IR
+  ...GENERIC_EXTENSIONS,   // Tier 2: grammar-free structural IR
+  ".rb", ".lua", ".ex", ".exs", ".sol", ".sh", ".bash", // still unsupported — surfaced honestly
 ];
 
-const SUPPORTED = new Set(ALL_EXTENSIONS);
+// Anything we attempt to index (deep or structural) counts as covered; the
+// warning is reserved for code we genuinely can't represent at all.
+const SUPPORTED = new Set([...ALL_EXTENSIONS, ...GENERIC_EXTENSIONS]);
 
 function extOf(path: string): string {
   const i = path.lastIndexOf(".");
