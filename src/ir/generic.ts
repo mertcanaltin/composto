@@ -83,5 +83,8 @@ export function extractGenericStructure(code: string, _filePath: string): string
       continue;
     }
   }
-  return out.join("\n");
+  // Collapse duplicate lines within a file — repeated includes across multiple
+  // namespace blocks and the same symbol hit from several call sites add noise
+  // without navigation value. Order-preserving (first occurrence wins).
+  return [...new Set(out)].join("\n");
 }

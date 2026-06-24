@@ -87,6 +87,22 @@ describe("extractGenericStructure (C++)", () => {
     expect(ir).not.toContain("protocol_end");
   });
 
+  it("collapses duplicate lines within a file", () => {
+    const dup = `#include <string>
+namespace ada::idna {
+void to_ascii(std::string_view in);
+}
+#include <string>
+namespace ada::idna {
+void normalize(std::string& s);
+}`;
+    const r = extractGenericStructure(dup, "idna.h");
+    expect(r.match(/USE:string/g)?.length).toBe(1);
+    expect(r.match(/NS:ada::idna/g)?.length).toBe(1);
+    expect(r).toContain("FN:to_ascii");
+    expect(r).toContain("FN:normalize");
+  });
+
   it("is a real token win and emits no brace noise", () => {
     expect(ir.length).toBeGreaterThan(0);
     expect(ir.length).toBeLessThan(CPP.length);
