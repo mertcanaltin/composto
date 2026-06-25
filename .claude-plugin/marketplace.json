@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "composto",
-      "description": "Send 89% fewer tokens to your LLM, get the same understanding. AST-first IR engine with tree-sitter parsing, 4-tier node classification, budget-aware context packing, and security scanning.",
+      "description": "Send 89% fewer tokens to your LLM, get the same understanding. A fast structural map of your codebase: AST-first IR engine with tree-sitter parsing, 4-tier node classification, and budget-aware context packing.",
       "category": "development",
       "source": "./",
       "homepage": "https://github.com/mertcanaltin/composto",

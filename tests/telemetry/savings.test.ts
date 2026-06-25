@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readSavings, recordSavings } from "../../../src/memory/telemetry/savings.js";
+import { readSavings, recordSavings } from "../../src/telemetry/savings.js";
 
 let dir: string;
 beforeEach(() => {

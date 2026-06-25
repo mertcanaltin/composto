@@ -1,23 +1,14 @@
-// Thin router from "composto hook <platform> <event>" CLI invocation to
-// the platform-specific adapter. Platform/event pairs are a closed set;
-// unknown combos throw (the CLI entry point catches and passthroughs so
-// the agent is never blocked, but the dispatcher itself is strict so
-// misconfiguration surfaces in tests).
-//
-// Returns a DispatchResult: { envelope, metadata }. The envelope is the
-// platform-specific JSON written to stdout. The metadata is what the CLI
-// layer hands to recordInvocation for telemetry — kept separate so the
-// telemetry path doesn't have to re-parse additionalContext strings.
+// Thin router from "composto hook <platform> <event>" CLI invocation to the
+// one surviving adapter: claude-code PostToolUse Read-compression. The old
+// PreToolUse/BeforeTool risk-verdict adapters (cursor/gemini/claude-code) were
+// the abandoned causal gate and have been removed. Unknown combos throw; the
+// CLI entry point catches and passes through so the agent is never blocked.
 
-import { defaultDeps, type HookDeps } from "./api-deps.js";
-import { runClaudeCodeHook } from "./adapters/claude-code.js";
 import { runClaudeCodePostRead } from "./adapters/claude-code-read.js";
-import { runCursorHook } from "./adapters/cursor.js";
-import { runGeminiCliHook } from "./adapters/gemini-cli.js";
-import type { HookMetadata } from "./adapters/claude-code.js";
+import type { HookMetadata } from "./types.js";
 
-export type Platform = "claude-code" | "cursor" | "gemini-cli";
-export type Event = "pretooluse" | "posttooluse" | "beforetool";
+export type Platform = "claude-code";
+export type Event = "posttooluse";
 
 export interface DispatchOpts {
   platform: Platform;
@@ -31,29 +22,12 @@ export interface DispatchResult {
   metadata: HookMetadata;
 }
 
-export type { HookMetadata } from "./adapters/claude-code.js";
+export type { HookMetadata } from "./types.js";
 
-export async function runHookDispatch(
-  opts: DispatchOpts,
-  deps: HookDeps = defaultDeps
-): Promise<DispatchResult> {
-  const p = opts.platform;
-  const e = opts.event;
+export async function runHookDispatch(opts: DispatchOpts): Promise<DispatchResult> {
   const hookOpts = { stdin: opts.stdin, cwd: opts.cwd };
-  switch (p) {
-    case "claude-code":
-      if (e === "pretooluse") return runClaudeCodeHook(hookOpts, deps);
-      if (e === "posttooluse") return runClaudeCodePostRead(hookOpts);
-      throw new Error(`unknown event for claude-code: ${e}`);
-    case "cursor":
-      if (e === "pretooluse") return runCursorHook(hookOpts, deps);
-      throw new Error(`unknown event for cursor: ${e}`);
-    case "gemini-cli":
-      if (e === "beforetool") return runGeminiCliHook(hookOpts, deps);
-      throw new Error(`unknown event for gemini-cli: ${e}`);
-    default: {
-      const _exhaustive: never = p;
-      throw new Error(`unknown platform: ${_exhaustive}`);
-    }
+  if (opts.platform === "claude-code" && opts.event === "posttooluse") {
+    return runClaudeCodePostRead(hookOpts);
   }
+  throw new Error(`unknown hook: ${opts.platform}/${opts.event}`);
 }

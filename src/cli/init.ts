@@ -12,29 +12,22 @@ export interface InitOptions {
    */
   geminiSettingsPath?: string;
   /**
-   * Lean Hook v0.7.0: rules file is opt-in. The agent learns Composto
-   * exists from the hook envelope itself when there's a real signal,
-   * so the always-on `composto.mdc` rules file (1940 chars × every turn)
-   * is no longer the default. Pass `withRules: true` to restore the old
-   * verbose teaching behavior.
+   * Write the slim Composto rules file (cursor only). Opt-in. Tells the agent
+   * to prefer composto_ir / composto_context over reading raw files.
    */
   withRules?: boolean;
   /**
-   * Lean Hook v0.7.0: MCP server registration is opt-in. The hook
-   * already exposes BlastRadius via the preToolUse envelope without
-   * the agent needing tool-call permission. Registering the MCP
-   * server adds 5 tool schemas (~300 tokens) to every conversation
-   * and historically prompted the agent to call tools on every edit.
-   * Pass `withMcp: true` to register the composto MCP server for
-   * direct agent queries (composto_ir/_context/_scan/_blastradius).
+   * Register the composto MCP server (composto_ir / composto_context /
+   * composto_benchmark) so the agent can query the map directly. For
+   * cursor/gemini-cli this is the primary integration (they have no hook).
    */
   withMcp?: boolean;
   /**
-   * Register the PostToolUse Read-compression hook (claude-code only). When on,
-   * large full reads of code files are replaced with structural IR before they
-   * enter the agent's context, saving tokens on every subsequent turn (tallied
-   * in `composto stats`). Opt-in: it changes what the agent sees on a Read, so
-   * it ships off until validated in real workflows. Ranged reads are left raw.
+   * claude-code only: register the PostToolUse Read-compression hook. This is
+   * Composto's core value — large full reads of code files are replaced with
+   * structural IR before they enter the agent's context, saving tokens on
+   * every subsequent turn (tallied in `composto stats`). Ranged reads stay raw
+   * and non-wins fall back to the source. Defaults ON for claude-code.
    */
   withCompress?: boolean;
 }
@@ -47,42 +40,29 @@ export interface InitResult {
 }
 
 const CURSOR_RULES_MDC = `---
-description: Composto MCP usage — tells the agent when to prefer composto_blastradius / composto_context / composto_ir / composto_scan over built-in file tools.
+description: Composto MCP — prefer composto_ir / composto_context over reading raw files.
 alwaysApply: true
 ---
 
 # Composto MCP — when to use
 
-This project has the \`composto\` MCP server registered. Prefer Composto tools over Cursor's built-in tools in the situations below.
-
-## Before editing any existing file under \`src/\`, \`lib/\`, or \`app/\`
-
-Call \`composto_blastradius\` with the target file path **first**, before proposing any edit.
-
-- If \`verdict\` is \`high\`: surface the risk to the user before changing the file. Mention the strongest signal (e.g. "this file was reverted the last time it was touched", "high fix-ratio in recent history").
-- If \`verdict\` is \`medium\`: note it briefly and proceed.
-- If \`verdict\` is \`low\` or \`unknown\`: proceed without comment.
-
-Skip this on test files, generated code, lockfiles, and anything in \`node_modules/\` or \`dist/\`.
-
-## When the user says "fix this bug in X", "why does X return wrong value", or "trace X"
-
-Call \`composto_context\` with \`target: "<symbol-or-file>"\` and \`budget: 4000\` instead of opening 5 files individually. The target file comes back as raw code; surrounding files come back as compressed IR. One round-trip, full picture.
+This project has the \`composto\` MCP server registered. Prefer its tools over reading raw files.
 
 ## When you only need to know what a file does (not its exact code)
 
-Call \`composto_ir\` with \`layer: "L1"\` instead of \`read_file\`. ~89% fewer tokens, same understanding. Use \`read_file\` only when you need exact strings, regexes, or formatting.
+Call \`composto_ir\` with \`layer: "L1"\` instead of \`read_file\`. ~89% fewer tokens, same structural understanding. Use \`read_file\` only when you need exact strings, regexes, or formatting.
 
-## Before staging commits / when reviewing diffs
+## When you need to trace a bug or feature across several files
 
-Call \`composto_scan\` on the changed paths to catch hardcoded secrets, debug artifacts, and stray \`console.log\` calls before the user commits.
+Call \`composto_context\` with \`target: "<symbol-or-file>"\` and \`budget: 4000\` instead of opening 5 files individually. The target file comes back as raw code; surrounding files come back as compressed IR. One round-trip, full picture.
 
 ## Don't
 
 - Don't call \`composto_benchmark\` unless the user explicitly asks about token savings.
-- Don't run \`composto_blastradius\` on every read — only before edits.
 - Don't compress a file the user explicitly asked to see in full.
 `;
+
+const MCP_SERVER = { command: "composto-mcp" } as const;
 
 function ensureDir(filePath: string): void {
   mkdirSync(dirname(filePath), { recursive: true });
@@ -160,54 +140,19 @@ function readJsonIfExists(filePath: string): Record<string, unknown> {
 }
 
 // ---------------------------------------------------------------------------
-// Cursor
+// Cursor — MCP-only (no hook; the risk-gate hook was removed)
 // ---------------------------------------------------------------------------
-
-function writeCursorHooks(projectPath: string, result: InitResult): void {
-  const hooksPath = join(projectPath, ".cursor", "hooks.json");
-  const relPath = ".cursor/hooks.json";
-  const existed = existsSync(hooksPath);
-  const existing = readJsonIfExists(hooksPath);
-
-  const existingHooks = (existing.hooks as Record<string, unknown>) ?? {};
-  const compostoEntry = {
-    matcher: "Edit|Write",
-    command: "composto hook cursor pretooluse",
-  };
-  const preToolUse = mergeHookArray(
-    existingHooks.preToolUse,
-    compostoEntry,
-    (e) => (e as { command?: string })?.command ?? "",
-  );
-
-  const merged: Record<string, unknown> = {
-    ...existing,
-    version: existing.version ?? 1,
-    hooks: { ...existingHooks, preToolUse },
-  };
-
-  ensureDir(hooksPath);
-  writeFileSync(hooksPath, JSON.stringify(merged, null, 2) + "\n");
-  if (existed) result.merged.push(relPath);
-  else result.written.push(relPath);
-}
 
 function initCursor(
   projectPath: string,
   result: InitResult,
   options: InitOptions,
 ): void {
-  if (options.withMcp) {
+  // Default to registering MCP — it's cursor's only integration now.
+  if (options.withMcp !== false) {
     writeJsonMerged(
       join(projectPath, ".cursor", "mcp.json"),
-      {
-        mcpServers: {
-          composto: {
-            command: "composto-mcp",
-            env: { COMPOSTO_BLASTRADIUS: "1" },
-          },
-        },
-      },
+      { mcpServers: { composto: MCP_SERVER } },
       result,
       ".cursor/mcp.json",
     );
@@ -220,11 +165,10 @@ function initCursor(
       ".cursor/rules/composto.mdc",
     );
   }
-  writeCursorHooks(projectPath, result);
 }
 
 // ---------------------------------------------------------------------------
-// Claude Code
+// Claude Code — PostToolUse compress-read hook (the core value) + optional MCP
 // ---------------------------------------------------------------------------
 
 function initClaudeCode(
@@ -239,33 +183,14 @@ function initClaudeCode(
 
   const baseExistingMcp = (existing.mcpServers as Record<string, unknown>) ?? {};
   const mcpServers = options.withMcp
-    ? {
-        ...baseExistingMcp,
-        composto: {
-          command: "composto-mcp",
-          env: { COMPOSTO_BLASTRADIUS: "1" },
-        },
-      }
+    ? { ...baseExistingMcp, composto: MCP_SERVER }
     : baseExistingMcp;
 
-  const compostoHookEntry = {
-    matcher: "Edit|Write|MultiEdit",
-    hooks: [
-      { type: "command", command: "composto hook claude-code pretooluse" },
-    ],
-  };
   const existingHooks = (existing.hooks as Record<string, unknown>) ?? {};
-  const preToolUse = mergeHookArray(
-    existingHooks.PreToolUse,
-    compostoHookEntry,
-    (e) =>
-      ((e as { hooks?: Array<{ command?: string }> })?.hooks?.[0]?.command) ??
-      "",
-  );
+  const hooksOut: Record<string, unknown> = { ...existingHooks };
 
-  const hooksOut: Record<string, unknown> = { ...existingHooks, PreToolUse: preToolUse };
-
-  if (options.withCompress) {
+  // Compress-read hook is Composto's core value; default ON for claude-code.
+  if (options.withCompress !== false) {
     const postReadEntry = {
       matcher: "Read",
       hooks: [
@@ -280,12 +205,7 @@ function initClaudeCode(
     );
   }
 
-  const merged: Record<string, unknown> = {
-    ...existing,
-    hooks: hooksOut,
-  };
-  // Only emit mcpServers if there's actually an entry to write — avoids
-  // creating an empty mcpServers: {} on greenfield Lean Hook installs.
+  const merged: Record<string, unknown> = { ...existing, hooks: hooksOut };
   if (Object.keys(mcpServers).length > 0) {
     merged.mcpServers = mcpServers;
   }
@@ -296,7 +216,7 @@ function initClaudeCode(
 }
 
 // ---------------------------------------------------------------------------
-// Gemini CLI (user-global, not project-local — tests MUST pass an override)
+// Gemini CLI — MCP-only (user-global; tests MUST pass an override)
 // ---------------------------------------------------------------------------
 
 function initGeminiCli(
@@ -307,49 +227,17 @@ function initGeminiCli(
   const settingsPath =
     options.geminiSettingsPath ?? join(homedir(), ".gemini", "settings.json");
   const relPath = settingsPath;
-  // User-global HOME writes can fail in ways project-local writes cannot:
-  // a read-only HOME, a symlink pointing nowhere, a path component that's a
-  // character device (e.g. /dev/null/foo), an out-of-disk condition, or just
-  // a filesystem permission surprise on locked-down CI. We catch the whole
-  // write path and surface the failure via result.skipped so `runInit` can
-  // still return normally — the user sees the reason instead of a crash.
+  // User-global HOME writes can fail in ways project-local writes cannot
+  // (read-only HOME, dangling symlink, out-of-disk, locked-down CI). Catch the
+  // whole write path and surface the failure via result.skipped.
   try {
     const existed = existsSync(settingsPath);
     const existing = readJsonIfExists(settingsPath);
 
     const baseExistingMcp = (existing.mcpServers as Record<string, unknown>) ?? {};
-    const mcpServers = options.withMcp
-      ? {
-          ...baseExistingMcp,
-          composto: {
-            command: "composto-mcp",
-            env: { COMPOSTO_BLASTRADIUS: "1" },
-          },
-        }
-      : baseExistingMcp;
+    const mcpServers = { ...baseExistingMcp, composto: MCP_SERVER };
 
-    const compostoHookEntry = {
-      matcher: "edit_file|write_file|replace",
-      hooks: [
-        { type: "command", command: "composto hook gemini-cli beforetool" },
-      ],
-    };
-    const existingHooks = (existing.hooks as Record<string, unknown>) ?? {};
-    const beforeTool = mergeHookArray(
-      existingHooks.BeforeTool,
-      compostoHookEntry,
-      (e) =>
-        ((e as { hooks?: Array<{ command?: string }> })?.hooks?.[0]?.command) ??
-        "",
-    );
-
-    const merged: Record<string, unknown> = {
-      ...existing,
-      hooks: { ...existingHooks, BeforeTool: beforeTool },
-    };
-    if (Object.keys(mcpServers).length > 0) {
-      merged.mcpServers = mcpServers;
-    }
+    const merged: Record<string, unknown> = { ...existing, mcpServers };
     ensureDir(settingsPath);
     writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + "\n");
     if (existed) result.merged.push(relPath);
@@ -361,7 +249,7 @@ function initGeminiCli(
 }
 
 export function runInit(projectPath: string, options: InitOptions): InitResult {
-  const client: InitClient = options.client ?? "cursor";
+  const client: InitClient = options.client ?? "claude-code";
   const result: InitResult = { client, written: [], skipped: [], merged: [] };
   if (client === "claude-code") initClaudeCode(projectPath, result, options);
   else if (client === "gemini-cli") initGeminiCli(projectPath, result, options);
