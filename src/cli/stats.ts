@@ -1,14 +1,11 @@
-// `composto stats` — reads .composto/memory.db and prints hook invocation
-// telemetry (last 7d by default). Also handles `--disable` to write the
-// opt-out marker file that `recordInvocation` respects. All data is local;
-// nothing leaves the repo.
+// `composto stats` — reports the cumulative token savings from the Read
+// auto-compression hook (the one on-thesis telemetry: meaning/token). Reads
+// the flat .composto/savings.json counter. All data is local; nothing leaves
+// the repo. `--disable` writes the opt-out marker file.
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { openDatabase } from "../memory/db.js";
-import { runMigrations } from "../memory/schema.js";
-import { recentSummary, type Summary } from "../memory/telemetry/hook-invocations.js";
-import { readSavings } from "../memory/telemetry/savings.js";
+import { readSavings } from "../telemetry/savings.js";
 
 export interface StatsOpts {
   cwd: string;
@@ -25,45 +22,31 @@ const DISABLE_NOTICE =
   "Composto telemetry disabled. Delete .composto/telemetry-disabled to re-enable.";
 
 export function runStats(opts: StatsOpts): StatsResult {
-  const composstoDir = join(opts.cwd, ".composto");
+  const compostoDir = join(opts.cwd, ".composto");
 
   if (opts.disable) {
-    mkdirSync(composstoDir, { recursive: true });
-    writeFileSync(join(composstoDir, "telemetry-disabled"), "");
+    mkdirSync(compostoDir, { recursive: true });
+    writeFileSync(join(compostoDir, "telemetry-disabled"), "");
     return { action: "disabled", output: DISABLE_NOTICE };
   }
 
-  const dbPath = join(composstoDir, "memory.db");
-  if (!existsSync(dbPath)) {
-    const msg = "No .composto/memory.db yet — run `composto index` or trigger a hook first.";
-    if (opts.json) {
-      return {
-        action: "printed",
-        output: JSON.stringify({ total: 0, note: msg }, null, 2),
-      };
-    }
-    return { action: "printed", output: msg };
+  const savings = readSavings(compostoDir);
+  if (opts.json) {
+    return { action: "printed", output: JSON.stringify(savings, null, 2) };
   }
 
-  const db = openDatabase(dbPath);
-  try {
-    runMigrations(db);
-    const summary = recentSummary(db);
-    const savings = readSavings(composstoDir);
+  if (savings.totalSavedTokens <= 0) {
     return {
       action: "printed",
-      output: opts.json
-        ? JSON.stringify({ ...summary, savings }, null, 2)
-        : renderSummary(summary) + renderSavings(savings.totalSavedTokens, savings.compressedReads),
+      output:
+        "No compression savings recorded yet — enable the Read hook with " +
+        "`composto init --client=claude-code --with-compress`.",
     };
-  } finally {
-    db.close();
   }
-}
-
-function pct(n: number, total: number): string {
-  if (total === 0) return "0%";
-  return `${Math.round((n / total) * 100)}%`;
+  return {
+    action: "printed",
+    output: renderSavings(savings.totalSavedTokens, savings.compressedReads),
+  };
 }
 
 // Sonnet input price, $3 / Mtok — the saving the compression hook represents.
@@ -73,37 +56,8 @@ export function renderSavings(totalSavedTokens: number, compressedReads: number)
   if (totalSavedTokens <= 0) return "";
   const dollars = (totalSavedTokens / 1_000_000) * INPUT_PRICE_PER_MTOK;
   return (
-    `\n\ncompression hook:\n` +
+    `compression hook:\n` +
     `  tokens saved:  ${totalSavedTokens.toLocaleString()} across ${compressedReads} reads` +
     ` (~$${dollars.toFixed(2)} at $${INPUT_PRICE_PER_MTOK}/Mtok input)`
   );
-}
-
-export function renderSummary(s: Summary): string {
-  const lines: string[] = [];
-  lines.push(`hook invocations (last 7d):  ${s.total}`);
-
-  if (s.total === 0) {
-    lines.push("  no hook firings recorded yet.");
-    return lines.join("\n");
-  }
-
-  const verdictOrder = ["low", "medium", "high", "unknown", "passthrough"];
-  const verdictKeys = [
-    ...verdictOrder.filter((k) => k in s.byVerdict),
-    ...Object.keys(s.byVerdict).filter((k) => !verdictOrder.includes(k)),
-  ];
-  const verdictParts = verdictKeys.map(
-    (k) => `${k} ${pct(s.byVerdict[k], s.total)}`,
-  );
-  lines.push(`  by verdict:  ${verdictParts.join(" / ")}`);
-
-  const platformParts = Object.entries(s.byPlatform).map(([k, v]) => `${k} ${v}`);
-  lines.push(`  by platform: ${platformParts.join(", ")}`);
-
-  lines.push(`  latency:     p50 ${s.latencyP50}ms, p95 ${s.latencyP95}ms`);
-  lines.push(
-    `  cache:       hit rate ${Math.round(s.cacheHitRate * 100)}% (cache feature deferred — see Phase 1 plan)`,
-  );
-  return lines.join("\n");
 }

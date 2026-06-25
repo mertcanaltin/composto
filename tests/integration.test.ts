@@ -3,9 +3,6 @@ import { extractStructure } from "../src/ir/structure.js";
 import { fingerprintFile } from "../src/ir/fingerprint.js";
 import { generateL0, generateL1 } from "../src/ir/layers.js";
 import { buildHealthTag, annotateIR, computeHealthFromTrends } from "../src/ir/health.js";
-import { runDetector } from "../src/watcher/detector.js";
-import { route, DEFAULT_ROUTES } from "../src/router/router.js";
-import { parseConfig } from "../src/config/loader.js";
 import { detectHotspots } from "../src/trends/hotspot.js";
 import type { GitLogEntry, TrendAnalysis } from "../src/types.js";
 
@@ -50,30 +47,6 @@ describe("End-to-end: Health-Aware IR pipeline", () => {
     const irTokenEstimate = l1.split(/\s+/).length;
     const savings = 1 - irTokenEstimate / rawTokenEstimate;
     expect(savings).toBeGreaterThan(0.1);
-  });
-
-  it("Detector: finds console.log in source file", () => {
-    const config = parseConfig(`
-watchers:
-  consoleLog:
-    enabled: true
-    severity:
-      "src/**": warning
-`);
-    const findings = runDetector(sampleCode, "src/UserProfile.tsx", config.watchers);
-    expect(findings.some((f) => f.watcherId === "consoleLog")).toBe(true);
-  });
-
-  it("Router: routes finding to correct agent", () => {
-    const finding = {
-      watcherId: "consoleLog",
-      severity: "warning" as const,
-      file: "src/UserProfile.tsx",
-      line: 7,
-      message: "console.log detected",
-    };
-    const decision = route(finding, DEFAULT_ROUTES);
-    expect(decision.deterministic).toBe(true);
   });
 
   it("Trends -> Health -> IR: full pipeline", () => {

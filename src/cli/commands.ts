@@ -1,15 +1,12 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { relative, join, dirname } from "node:path";
 import { loadConfig } from "../config/loader.js";
-import { runDetector } from "../watcher/detector.js";
 import { generateLayer } from "../ir/layers.js";
 import { computeHealthFromTrends } from "../ir/health.js";
 import { getGitLog } from "../trends/git-log-parser.js";
 import { detectHotspots } from "../trends/hotspot.js";
 import { detectDecay } from "../trends/decay.js";
 import { detectInconsistencies } from "../trends/inconsistency.js";
-import { route, DEFAULT_ROUTES } from "../router/router.js";
-import { CLIAdapter } from "./adapter.js";
 import { benchmarkFile, summarize, type FileResult, type BenchmarkSummary } from "../benchmark/runner.js";
 import { VERSION } from "../version.js";
 import { runQualityBenchmark } from "../benchmark/quality.js";
@@ -17,63 +14,7 @@ import { packContext, type FileInput } from "../context/packer.js";
 import { estimateTokens } from "../benchmark/tokenizer.js";
 import { collectFiles } from "../utils/collectFiles.js";
 import { dollarsFor, buildBadgeMarkdown, buildShareLine } from "./score-format.js";
-import type { TrendAnalysis, Finding } from "../types.js";
-import { MemoryAPI } from "../memory/api.js";
-
-export function runScan(projectPath: string): void {
-  const adapter = new CLIAdapter();
-  const config = loadConfig(projectPath);
-
-  console.log(`composto v${VERSION} — scanning...\n`);
-
-  const files = collectFiles(projectPath, [".ts", ".tsx", ".js", ".jsx"]);
-  console.log(`  Found ${files.length} files\n`);
-
-  const allFindings: Finding[] = [];
-  for (const file of files) {
-    const code = readFileSync(file, "utf-8");
-    const relPath = relative(projectPath, file);
-    const findings = runDetector(code, relPath, config.watchers);
-    allFindings.push(...findings);
-  }
-
-  if (allFindings.length > 0) {
-    console.log(`  Findings (${allFindings.length}):\n`);
-    for (const finding of allFindings) {
-      adapter.notify({ type: "finding", data: finding });
-      const decision = route(finding, DEFAULT_ROUTES);
-      console.log(`     -> Route: ${decision.agents.join(",")} @ ${decision.irLayer}\n`);
-    }
-  } else {
-    console.log("  No issues found.\n");
-  }
-}
-
-export function runTrends(projectPath: string): void {
-  const adapter = new CLIAdapter();
-  const config = loadConfig(projectPath);
-
-  console.log(`composto v${VERSION} — trend analysis...\n`);
-
-  const entries = getGitLog(projectPath, 100);
-  if (entries.length === 0) {
-    console.log("  No git history found.\n");
-    return;
-  }
-
-  console.log(`  Analyzed ${entries.length} commits\n`);
-
-  const trends: TrendAnalysis = {
-    hotspots: detectHotspots(entries, {
-      threshold: config.trends.hotspotThreshold,
-      fixRatioThreshold: config.trends.bugFixRatioThreshold,
-    }),
-    decaySignals: detectDecay(entries),
-    inconsistencies: detectInconsistencies(entries),
-  };
-
-  adapter.notify({ type: "trend-report", data: trends });
-}
+import type { TrendAnalysis } from "../types.js";
 
 export async function runIR(projectPath: string, filePath: string, layer: string): Promise<void> {
   const config = loadConfig(projectPath);
@@ -487,140 +428,4 @@ export async function runContext(
 
   console.log(`  Budget: ${result.totalTokens}/${result.budget} tokens`);
   console.log(`  Files: ${parts.join(", ")}`);
-}
-
-export async function runImpact(
-  projectPath: string,
-  file: string,
-  opts: { intent?: string; level?: string } = {}
-): Promise<void> {
-  const dbPath = join(projectPath, ".composto", "memory.db");
-  const api = new MemoryAPI({ dbPath, repoPath: projectPath });
-  try {
-    await api.bootstrapIfNeeded();
-    const res = await api.blastradius({
-      file,
-      intent: opts.intent as any,
-      level: opts.level as any,
-    });
-
-    if (res.status !== "ok") {
-      console.log(`status:     ${res.status}`);
-      if (res.reason) console.log(`reason:     ${res.reason}`);
-      console.log(`verdict:    ${res.verdict}`);
-      console.log(`confidence: ${res.confidence.toFixed(2)}`);
-      return;
-    }
-
-    console.log(`verdict:    ${res.verdict}`);
-    console.log(`score:      ${res.score.toFixed(2)}`);
-    console.log(`confidence: ${res.confidence.toFixed(2)}`);
-    console.log(`tazelik:    ${res.metadata.tazelik}`);
-    console.log(`signals:`);
-    for (const s of res.signals) {
-      const bar = s.strength > 0 ? "■".repeat(Math.max(1, Math.round(s.strength * 10))) : "·";
-      console.log(`  ${s.type.padEnd(18)} ${bar.padEnd(10)} strength=${s.strength.toFixed(2)} precision=${s.precision.toFixed(2)}`);
-    }
-  } finally {
-    await api.close();
-  }
-}
-
-export interface IndexOptions {
-  since?: string;
-}
-
-export async function runIndex(projectPath: string, options: IndexOptions = {}): Promise<void> {
-  const { resolveSinceBoundary } = await import("../memory/git.js");
-  const dbPath = join(projectPath, ".composto", "memory.db");
-  const api = new MemoryAPI({ dbPath, repoPath: projectPath });
-
-  // Open a separate read-only connection for progress polling. WAL mode lets
-  // this connection see batches the worker has already committed.
-  const Database = (await import("better-sqlite3")).default;
-  const probeDb = new Database(dbPath, { readonly: true, fileMustExist: false });
-
-  const start = Date.now();
-  let stopProgress = () => {};
-
-  try {
-    if (options.since) {
-      const fromSha = resolveSinceBoundary(projectPath, options.since);
-      console.log(`composto: indexing commits since ${options.since}${fromSha ? ` (boundary ${fromSha.slice(0, 8)})` : " (whole history — date predates first commit)"}...`);
-
-      stopProgress = startProgressPoller(probeDb, start);
-      await api.bootstrapFromBoundary(fromSha);
-    } else {
-      console.log("composto: bootstrapping memory index...");
-      stopProgress = startProgressPoller(probeDb, start);
-      await api.bootstrapIfNeeded();
-    }
-
-    stopProgress();
-    const total = readIndexedTotal(probeDb);
-    const elapsed = Date.now() - start;
-    const rate = total > 0 && elapsed > 0 ? Math.round((total * 1000) / elapsed) : 0;
-    console.log(`composto: index ready — ${total.toLocaleString()} commits in ${(elapsed / 1000).toFixed(1)}s (${rate.toLocaleString()} commits/sec)`);
-  } finally {
-    stopProgress();
-    probeDb.close();
-    await api.close();
-  }
-}
-
-function readIndexedTotal(db: import("better-sqlite3").Database): number {
-  try {
-    const row = db
-      .prepare("SELECT value FROM index_state WHERE key = 'indexed_commits_total'")
-      .get() as { value: string } | undefined;
-    return row ? parseInt(row.value, 10) : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function startProgressPoller(db: import("better-sqlite3").Database, start: number): () => void {
-  let last = -1;
-  const interval = setInterval(() => {
-    const total = readIndexedTotal(db);
-    if (total === last) return;
-    last = total;
-    const elapsed = Date.now() - start;
-    const rate = total > 0 && elapsed > 0 ? Math.round((total * 1000) / elapsed) : 0;
-    process.stdout.write(`  indexed ${total.toLocaleString()} commits (${rate.toLocaleString()}/sec) [${(elapsed / 1000).toFixed(1)}s]\r`);
-  }, 1500);
-  return () => {
-    clearInterval(interval);
-    process.stdout.write("\n");
-  };
-}
-
-import { collectStatus } from "../memory/status.js";
-
-export async function runIndexStatus(projectPath: string): Promise<void> {
-  const dbPath = join(projectPath, ".composto", "memory.db");
-  const s = collectStatus(dbPath);
-
-  console.log(`Composto Memory — ${projectPath}\n`);
-  console.log("Index state");
-  console.log(`  Schema version:           ${s.schemaVersion}`);
-  console.log(`  Bootstrapped:             ${s.bootstrapped ? "yes" : "no"}`);
-  console.log(`  Indexed through:          ${s.indexedCommitsThrough || "(none)"}`);
-  console.log(`  Indexed commits total:    ${s.indexedCommitsTotal}`);
-  console.log(`  Files w/ deep index:      ${s.filesWithDeepIndex}`);
-  console.log();
-  console.log("Calibration");
-  if (s.calibrationLastRefreshedAt) {
-    const dt = new Date(s.calibrationLastRefreshedAt * 1000).toISOString();
-    console.log(`  Last refreshed:           ${dt}`);
-  } else {
-    console.log(`  Last refreshed:           (never)`);
-  }
-  console.log(`  Rows populated:           ${s.calibrationRows} / 5`);
-  console.log();
-  console.log("Storage");
-  console.log(`  DB + WAL + SHM:           ${(s.storageBytes / 1024).toFixed(1)} KB`);
-  console.log();
-  console.log("Health");
-  console.log(`  Integrity check:          ${s.integrityOk ? "OK" : "FAIL"}`);
 }

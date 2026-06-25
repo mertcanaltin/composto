@@ -11,8 +11,8 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { decideReadCompression } from "../compress-read.js";
-import { recordSavings } from "../../../memory/telemetry/savings.js";
-import type { ClaudeCodeResult } from "./claude-code.js";
+import { recordSavings } from "../../../telemetry/savings.js";
+import type { ClaudeCodeResult } from "../types.js";
 
 interface HookOpts {
   stdin: string;

@@ -1,55 +1,44 @@
 import { describe, it, expect } from "vitest";
-import type { BlastRadiusResponse } from "../../../src/memory/types.js";
-import type { HookDeps, HookApi } from "../../../src/cli/hook/api-deps.js";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runHookDispatch } from "../../../src/cli/hook/dispatcher.js";
 
-function stubHigh(): HookDeps {
-  const res: BlastRadiusResponse = {
-    status: "ok",
-    verdict: "high",
-    score: 0.9,
-    confidence: 0.6,
-    signals: [{ type: "revert_match", strength: 1.0, precision: 0.5, sample_size: 25, evidence: [] }],
-    metadata: { tazelik: "fresh", index_version: 1, indexed_commits_through: "abc", indexed_commits_total: 100, query_ms: 5, signal_coverage: "1/4" },
-    calibration: "repo-calibrated",
-  };
-  const api: HookApi = { async blastradius() { return res; }, async close() {} };
-  return { makeApi: () => api };
-}
-
+// The dispatcher now has a single route: claude-code PostToolUse Read-compress.
+// The risk-gate PreToolUse/BeforeTool adapters were removed in the fast-map
+// consolidation.
 describe("runHookDispatch", () => {
-  const stdin = JSON.stringify({ tool_name: "Edit", tool_input: { file_path: "src/a.ts", old_string: "x", new_string: "y" } });
-
-  it("routes claude-code pretooluse to the claude-code adapter", async () => {
-    const result = await runHookDispatch({ platform: "claude-code", event: "pretooluse", stdin, cwd: "/irrelevant" }, stubHigh());
-    // CC envelope
-    expect((result.envelope as any).hookSpecificOutput?.additionalContext).toMatch(/composto_blastradius/i);
-    expect(result.metadata.verdict).toBe("high");
-    expect(result.metadata.filePath).toBe("src/a.ts");
+  it("routes claude-code posttooluse to the compress-read adapter", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "composto-disp-"));
+    try {
+      const filePath = join(dir, "a.ts");
+      writeFileSync(
+        filePath,
+        [
+          "export interface User { id: string; name: string; }",
+          "export function greet(u: User): string {",
+          "  if (!u.name) return 'anon';",
+          "  return `hi ${u.name}`;",
+          "}",
+        ].join("\n"),
+      );
+      const stdin = JSON.stringify({ tool_name: "Read", tool_input: { file_path: filePath } });
+      const result = await runHookDispatch({ platform: "claude-code", event: "posttooluse", stdin, cwd: dir });
+      expect(result.envelope).toHaveProperty("hookSpecificOutput");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
-  it("routes cursor pretooluse to the cursor adapter", async () => {
-    const result = await runHookDispatch({ platform: "cursor", event: "pretooluse", stdin, cwd: "/irrelevant" }, stubHigh());
-    // Cursor envelope
-    expect((result.envelope as any).permissionDecision).toBe("deny");
-    expect(result.metadata.verdict).toBe("high");
-  });
-
-  it("routes gemini-cli beforetool to the gemini-cli adapter", async () => {
-    const result = await runHookDispatch({ platform: "gemini-cli", event: "beforetool", stdin, cwd: "/irrelevant" }, stubHigh());
-    expect((result.envelope as any).hookSpecificOutput?.additionalContext).toMatch(/composto_blastradius/i);
-    expect(result.metadata.verdict).toBe("high");
-  });
-
-  it("throws on unknown platform", async () => {
+  it("throws on an unknown platform", async () => {
     await expect(
-      runHookDispatch({ platform: "unknown-platform" as any, event: "pretooluse", stdin: "{}", cwd: "." })
-    ).rejects.toThrow(/unknown platform/);
+      runHookDispatch({ platform: "cursor" as any, event: "posttooluse" as any, stdin: "{}", cwd: "." }),
+    ).rejects.toThrow(/unknown hook/);
   });
 
-  it("throws on unknown event for a known platform", async () => {
+  it("throws on an unknown event for claude-code", async () => {
     await expect(
-      runHookDispatch({ platform: "claude-code", event: "no-such-event" as any, stdin: "{}", cwd: "." })
-    ).rejects.toThrow(/unknown event/);
+      runHookDispatch({ platform: "claude-code", event: "pretooluse" as any, stdin: "{}", cwd: "." }),
+    ).rejects.toThrow(/unknown hook/);
   });
 });

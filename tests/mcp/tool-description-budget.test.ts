@@ -28,13 +28,11 @@ function extractToolDescriptions(): Map<string, string> {
 describe("MCP tool descriptions — Lean Hook v0.7.0 budget", () => {
   const descs = extractToolDescriptions();
 
-  it("registers all 5 known tools", () => {
+  it("registers the 3 core map tools", () => {
     expect([...descs.keys()].sort()).toEqual([
       "composto_benchmark",
-      "composto_blastradius",
       "composto_context",
       "composto_ir",
-      "composto_scan",
     ]);
   });
 

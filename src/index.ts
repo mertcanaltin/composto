@@ -1,6 +1,6 @@
 import {
-  runScan, runTrends, runIR, runBenchmark, runBenchmarkQuality, runContext,
-  runImpact, runIndex, runIndexStatus, runScore, writeProjectIndex,
+  runIR, runBenchmark, runBenchmarkQuality, runContext,
+  runScore, writeProjectIndex,
 } from "./cli/commands.js";
 import { runInit, type InitClient } from "./cli/init.js";
 import { runHookDispatch, type Platform, type Event as HookEvent } from "./cli/hook/dispatcher.js";
@@ -8,9 +8,6 @@ import { runStats } from "./cli/stats.js";
 import { startProxy } from "./proxy/server.js";
 import { startIndexDaemon } from "./daemon/index-server.js";
 import { writeHandoff, readLatestHandoff, formatHandoff } from "./handoff/writer.js";
-import { openDatabase } from "./memory/db.js";
-import { runMigrations } from "./memory/schema.js";
-import { recordInvocation } from "./memory/telemetry/hook-invocations.js";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 
@@ -39,16 +36,6 @@ const args = process.argv.slice(2);
 const command = args[0];
 
 switch (command) {
-  case "scan": {
-    const projectPath = resolve(args[1] ?? ".");
-    runScan(projectPath);
-    break;
-  }
-  case "trends": {
-    const projectPath = resolve(args[1] ?? ".");
-    runTrends(projectPath);
-    break;
-  }
   case "ir": {
     const filePath = args[1];
     const layer = args[2] ?? "L1";
@@ -153,29 +140,6 @@ switch (command) {
     await runContext(projectPath, budget, target, json);
     break;
   }
-  case "impact": {
-    const filePath = args[1];
-    if (!filePath) {
-      console.error("Usage: composto impact <file> [--intent=bugfix] [--level=detail]");
-      process.exit(1);
-    }
-    const intentArg = args.find((a) => a.startsWith("--intent="));
-    const levelArg = args.find((a) => a.startsWith("--level="));
-    await runImpact(resolve("."), filePath, {
-      intent: intentArg?.slice("--intent=".length),
-      level: levelArg?.slice("--level=".length),
-    });
-    break;
-  }
-  case "index": {
-    if (args.includes("--status")) {
-      await runIndexStatus(resolve("."));
-    } else {
-      const sinceArg = args.find((a) => a.startsWith("--since="))?.slice("--since=".length);
-      await runIndex(resolve("."), { since: sinceArg });
-    }
-    break;
-  }
   case "init": {
     const valid = ["cursor", "claude-code", "gemini-cli"] as const;
     const clientArg = args.find((a) => a.startsWith("--client="))?.slice("--client=".length);
@@ -213,15 +177,10 @@ switch (command) {
     break;
   }
   case "hook": {
-    // composto hook <platform> <event> — reads PreToolUse/BeforeTool JSON from
-    // stdin, emits the platform's hook response envelope as JSON on stdout.
+    // composto hook <platform> <event> — reads the PostToolUse Read JSON from
+    // stdin, emits the compress-read response envelope as JSON on stdout.
     // On ANY error → print '{"hookSpecificOutput":{}}' (universal passthrough).
     // Hooks MUST NEVER exit non-zero — that can hang the agent.
-    //
-    // After emitting the envelope, best-effort-writes one row to
-    // hook_invocations for `composto stats`. Telemetry failures never
-    // propagate.
-    const hookStart = Date.now();
     try {
       const platform = args[1] as Platform | undefined;
       const event = args[2] as HookEvent | undefined;
@@ -237,30 +196,6 @@ switch (command) {
         cwd: process.cwd(),
       });
       console.log(JSON.stringify(result.envelope));
-
-      // Telemetry — best-effort. Never throws.
-      try {
-        const dbPath = join(process.cwd(), ".composto", "memory.db");
-        const db = openDatabase(dbPath);
-        try {
-          runMigrations(db);
-          recordInvocation(db, {
-            timestamp: Math.floor(Date.now() / 1000),
-            platform,
-            event,
-            filePath: result.metadata.filePath,
-            verdict: result.metadata.verdict,
-            score: result.metadata.score,
-            confidence: result.metadata.confidence,
-            latencyMs: Date.now() - hookStart,
-            cacheHit: false,
-          });
-        } finally {
-          db.close();
-        }
-      } catch {
-        /* telemetry best-effort */
-      }
     } catch {
       console.log('{"hookSpecificOutput":{}}');
     }
@@ -277,32 +212,26 @@ switch (command) {
     console.log(`composto v${PKG_VERSION}`);
     break;
   default:
-    console.log(`composto v${PKG_VERSION} — less tokens, more insight\n`);
+    console.log(`composto v${PKG_VERSION} — fast structural map, max meaning per token\n`);
     console.log("Commands:");
-    console.log("  scan [path]                           Scan codebase for issues");
-    console.log("  trends [path]                         Analyze codebase health trends");
-    console.log("  ir <file> [layer]                     Generate IR for a file (L0|L1|L2|L3)");
-    console.log("  benchmark [path]                      Benchmark IR token savings");
-    console.log("  score [path] [--json]                Shareable scorecard: what your repo costs an AI + risk hotspots");
-    console.log("  reindex [path] [--budget=N]          Write/refresh the navigation map at .composto/context.md (SHA-stamped)");
-    console.log("  start [path] [--budget=N]            Keep the navigation map live: in-memory build + file watcher, auto-refreshes .composto/context.md");
-    console.log("  handoff [path] [--json] [--latest]   Cross-agent handoff: layered prefix/delta + hashes, changed files as IR (.composto/handoff.json)");
-    console.log("  benchmark-quality <file>              Compare AI responses: raw vs IR");
-    console.log("  context [path] --budget N             Smart context within token budget");
+    console.log("  ir <file> [layer]                     Compress a file to structural IR (L0|L1|L2|L3)");
+    console.log("  context [path] --budget N             Pack a directory's map into a token budget");
     console.log("  context [path] --target <symbol>      Target file as raw, surrounding as IR");
     console.log("  context [path] --json                Machine-readable output for piping into agents/scripts");
-    console.log("  impact <file>                         Show historical blast radius for a file");
-    console.log("  index [--since=YYYY-MM-DD]            Build or refresh the memory index (--since bounds work for huge repos)");
-    console.log("  index --status                        Show memory index diagnostics");
-    console.log("  init [--client=<name>] [--with-mcp] [--with-rules]");
-    console.log("                                        Lean Hook init (clients: cursor, claude-code, gemini-cli)");
-    console.log("                                          --with-mcp   register the composto MCP server (5 tools)");
-    console.log("                                          --with-rules write .cursor/rules/composto.mdc (cursor only)");
+    console.log("  reindex [path] [--budget=N]          Write/refresh the navigation map at .composto/context.md (SHA-stamped)");
+    console.log("  start [path] [--budget=N]            Keep the navigation map live: file watcher auto-refreshes .composto/context.md");
+    console.log("  handoff [path] [--json] [--latest]   Cross-agent map artifact: layered prefix/delta + hashes, changed files as IR");
+    console.log("  score [path] [--json]                Shareable scorecard: what your repo costs an AI");
+    console.log("  benchmark [path]                      Benchmark IR token savings");
+    console.log("  benchmark-quality <file>              Compare AI responses: raw vs IR");
+    console.log("  init [--client=<name>] [--with-mcp] [--with-compress]");
+    console.log("                                        Wire Composto into your agent (clients: claude-code, cursor, gemini-cli)");
+    console.log("                                          --with-mcp       register the composto MCP server (ir/context/benchmark)");
     console.log("                                          --with-compress  auto-compress large code Reads to IR (claude-code; saves tokens, see `stats`)");
-    console.log("                                          --with-index     generate .composto/context.md navigation map (cut blind-exploration tokens)");
-    console.log("  hook <platform> <event>               Run BlastRadius hook (reads tool JSON from stdin)");
-    console.log("  stats [--json] [--disable]            Show hook telemetry (last 7d); --disable opts out");
-    console.log("  proxy [--port N]                      Run the compression proxy (point your LLM base URL at it)");
+    console.log("                                          --with-index     generate .composto/context.md navigation map");
+    console.log("  hook <platform> <event>               Run the compress-read hook (reads tool JSON from stdin)");
+    console.log("  stats [--json] [--disable]            Show cumulative compression savings; --disable opts out");
+    console.log("  proxy [--port N]                      Compression proxy, experimental (point your LLM base URL at it)");
     console.log("  version                               Show version");
     break;
 }

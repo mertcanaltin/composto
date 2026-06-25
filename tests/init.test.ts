@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../src/cli/init.js";
 
+// Cursor and Gemini CLI are MCP-only integrations now — the PreToolUse/BeforeTool
+// risk-gate hook was removed in the fast-map consolidation. MCP registration is
+// their primary (default-on) wiring.
 describe("composto init — Cursor configuration", () => {
   let tmp: string;
 
@@ -15,43 +18,19 @@ describe("composto init — Cursor configuration", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("does NOT write .cursor/mcp.json by default (Lean Hook v0.7.0)", () => {
+  it("writes .cursor/mcp.json with the composto server (no env) by default", () => {
     runInit(tmp, { client: "cursor" });
-    expect(existsSync(join(tmp, ".cursor", "mcp.json"))).toBe(false);
-  });
-
-  it("writes .cursor/mcp.json with composto server when withMcp: true", () => {
-    runInit(tmp, { client: "cursor", withMcp: true });
     const cfg = JSON.parse(readFileSync(join(tmp, ".cursor", "mcp.json"), "utf-8"));
     expect(cfg.mcpServers.composto.command).toBe("composto-mcp");
+    expect(cfg.mcpServers.composto.env).toBeUndefined();
   });
 
-  it("sets COMPOSTO_BLASTRADIUS=1 env on the cursor MCP server entry when withMcp: true", () => {
-    runInit(tmp, { client: "cursor", withMcp: true });
-    const cfg = JSON.parse(
-      readFileSync(join(tmp, ".cursor", "mcp.json"), "utf-8"),
-    );
-    expect(cfg.mcpServers.composto.env?.COMPOSTO_BLASTRADIUS).toBe("1");
+  it("does NOT write hooks.json (cursor is MCP-only now)", () => {
+    runInit(tmp, { client: "cursor" });
+    expect(existsSync(join(tmp, ".cursor", "hooks.json"))).toBe(false);
   });
 
-  it("upgrades a legacy mcp.json (composto entry without env) by adding the env block when withMcp: true", () => {
-    mkdirSync(join(tmp, ".cursor"), { recursive: true });
-    writeFileSync(
-      join(tmp, ".cursor", "mcp.json"),
-      JSON.stringify(
-        { mcpServers: { composto: { command: "composto-mcp" } } },
-        null,
-        2,
-      ),
-    );
-    runInit(tmp, { client: "cursor", withMcp: true });
-    const cfg = JSON.parse(
-      readFileSync(join(tmp, ".cursor", "mcp.json"), "utf-8"),
-    );
-    expect(cfg.mcpServers.composto.env?.COMPOSTO_BLASTRADIUS).toBe("1");
-  });
-
-  it("default init leaves an existing mcp.json untouched (no composto entry added)", () => {
+  it("merges into existing mcp.json without removing other servers", () => {
     mkdirSync(join(tmp, ".cursor"), { recursive: true });
     writeFileSync(
       join(tmp, ".cursor", "mcp.json"),
@@ -60,63 +39,81 @@ describe("composto init — Cursor configuration", () => {
     runInit(tmp, { client: "cursor" });
     const cfg = JSON.parse(readFileSync(join(tmp, ".cursor", "mcp.json"), "utf-8"));
     expect(cfg.mcpServers.other.command).toBe("other-mcp");
-    expect(cfg.mcpServers.composto).toBeUndefined();
-  });
-
-  it("does NOT write .cursor/rules/composto.mdc by default (Lean Hook v0.7.0)", () => {
-    runInit(tmp, { client: "cursor" });
-    const rulePath = join(tmp, ".cursor", "rules", "composto.mdc");
-    expect(existsSync(rulePath)).toBe(false);
-  });
-
-  it("writes .cursor/rules/composto.mdc when withRules: true", () => {
-    runInit(tmp, { client: "cursor", withRules: true });
-    const rulePath = join(tmp, ".cursor", "rules", "composto.mdc");
-    expect(existsSync(rulePath)).toBe(true);
-    const content = readFileSync(rulePath, "utf-8");
-    expect(content).toContain("alwaysApply: true");
-    expect(content).toContain("composto_blastradius");
-  });
-
-  it("merges into existing mcp.json without removing other servers when withMcp: true", () => {
-    mkdirSync(join(tmp, ".cursor"), { recursive: true });
-    writeFileSync(
-      join(tmp, ".cursor", "mcp.json"),
-      JSON.stringify({ mcpServers: { other: { command: "other-mcp" } } }, null, 2),
-    );
-    runInit(tmp, { client: "cursor", withMcp: true });
-    const cfg = JSON.parse(readFileSync(join(tmp, ".cursor", "mcp.json"), "utf-8"));
-    expect(cfg.mcpServers.other.command).toBe("other-mcp");
     expect(cfg.mcpServers.composto.command).toBe("composto-mcp");
   });
 
-  it("skips existing .cursor/rules/composto.mdc — does not overwrite user edits when withRules: true", () => {
-    mkdirSync(join(tmp, ".cursor", "rules"), { recursive: true });
-    writeFileSync(join(tmp, ".cursor", "rules", "composto.mdc"), "USER EDITS");
-    runInit(tmp, { client: "cursor", withRules: true });
-    expect(readFileSync(join(tmp, ".cursor", "rules", "composto.mdc"), "utf-8")).toBe("USER EDITS");
-  });
-
-  it("is idempotent — running twice with withMcp does not duplicate the composto server", () => {
-    runInit(tmp, { client: "cursor", withMcp: true });
-    runInit(tmp, { client: "cursor", withMcp: true });
+  it("is idempotent — running twice does not duplicate the composto server", () => {
+    runInit(tmp, { client: "cursor" });
+    runInit(tmp, { client: "cursor" });
     const cfg = JSON.parse(readFileSync(join(tmp, ".cursor", "mcp.json"), "utf-8"));
     expect(cfg.mcpServers.composto.command).toBe("composto-mcp");
     expect(Object.keys(cfg.mcpServers).length).toBe(1);
   });
 
-  it("default summary includes hooks.json but NOT mcp.json or the rules file", () => {
-    const result = runInit(tmp, { client: "cursor" });
-    expect(result.written).not.toContain(".cursor/mcp.json");
-    expect(result.written).not.toContain(".cursor/rules/composto.mdc");
-    expect(result.skipped).toEqual([]);
+  it("does NOT write .cursor/rules/composto.mdc by default", () => {
+    runInit(tmp, { client: "cursor" });
+    expect(existsSync(join(tmp, ".cursor", "rules", "composto.mdc"))).toBe(false);
   });
 
-  it("withRules: true summary includes the rules file in written on first run, skipped on second", () => {
-    const first = runInit(tmp, { client: "cursor", withRules: true });
-    expect(first.written).toContain(".cursor/rules/composto.mdc");
-    const second = runInit(tmp, { client: "cursor", withRules: true });
-    expect(second.skipped).toContain(".cursor/rules/composto.mdc");
+  it("writes a slim ir/context rules file when withRules: true", () => {
+    runInit(tmp, { client: "cursor", withRules: true });
+    const rulePath = join(tmp, ".cursor", "rules", "composto.mdc");
+    expect(existsSync(rulePath)).toBe(true);
+    const content = readFileSync(rulePath, "utf-8");
+    expect(content).toContain("alwaysApply: true");
+    expect(content).toContain("composto_ir");
+    expect(content).toContain("composto_context");
+    // The dead blastradius/scan tooling must not be referenced anymore.
+    expect(content).not.toContain("composto_blastradius");
+  });
+
+  it("skips an existing rules file — does not overwrite user edits", () => {
+    mkdirSync(join(tmp, ".cursor", "rules"), { recursive: true });
+    writeFileSync(join(tmp, ".cursor", "rules", "composto.mdc"), "USER EDITS");
+    runInit(tmp, { client: "cursor", withRules: true });
+    expect(readFileSync(join(tmp, ".cursor", "rules", "composto.mdc"), "utf-8")).toBe("USER EDITS");
+  });
+});
+
+describe("composto init — Gemini CLI configuration", () => {
+  let tmp: string;
+  let settingsPath: string;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "composto-init-gem-"));
+    settingsPath = join(tmp, "fake-home", ".gemini", "settings.json");
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("registers the composto MCP server (no env, no hooks)", () => {
+    runInit(tmp, { client: "gemini-cli", geminiSettingsPath: settingsPath });
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(settings.mcpServers?.composto?.command).toBe("composto-mcp");
+    expect(settings.mcpServers.composto.env).toBeUndefined();
+    expect(settings.hooks).toBeUndefined();
+  });
+
+  it("preserves unrelated settings when merging", () => {
+    mkdirSync(join(tmp, "fake-home", ".gemini"), { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }, null, 2));
+    runInit(tmp, { client: "gemini-cli", geminiSettingsPath: settingsPath });
+    const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(settings.theme).toBe("dark");
+    expect(settings.mcpServers.composto.command).toBe("composto-mcp");
+  });
+
+  it("captures a write failure in result.skipped instead of throwing", () => {
+    const unwritable = "/dev/null/composto-gemini-settings.json";
+    let result: ReturnType<typeof runInit> | undefined;
+    expect(() => {
+      result = runInit(tmp, { client: "gemini-cli", geminiSettingsPath: unwritable });
+    }).not.toThrow();
+    expect(result).toBeDefined();
+    const skippedHit = result!.skipped.find((s) => /write failed/.test(s));
+    expect(skippedHit).toBeDefined();
   });
 });
 
@@ -131,9 +128,9 @@ describe("composto init — defaults", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("defaults to cursor when no client is specified", () => {
+  it("defaults to claude-code when no client is specified", () => {
     const result = runInit(tmp, {});
-    expect(result.client).toBe("cursor");
-    expect(existsSync(join(tmp, ".cursor", "hooks.json"))).toBe(true);
+    expect(result.client).toBe("claude-code");
+    expect(existsSync(join(tmp, ".claude", "settings.json"))).toBe(true);
   });
 });

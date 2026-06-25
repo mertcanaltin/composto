@@ -13,11 +13,9 @@ import { detectInconsistencies } from "../trends/inconsistency.js";
 import { loadConfig } from "../config/loader.js";
 import { benchmarkFile, summarize } from "../benchmark/runner.js";
 import { packContext, type FileInput } from "../context/packer.js";
-import { runDetector } from "../watcher/detector.js";
 import { estimateTokens } from "../benchmark/tokenizer.js";
 import { collectFiles } from "../utils/collectFiles.js";
 import type { TrendAnalysis } from "../types.js";
-import { MemoryAPI } from "../memory/api.js";
 
 const ALL_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".go", ".rs"];
 
@@ -170,72 +168,6 @@ server.tool(
     return {
       content: [{ type: "text" as const, text: lines.join("\n") }],
     };
-  }
-);
-
-// Tool 4: composto_scan — Scan for security issues
-server.tool(
-  "composto_scan",
-  "Scan for hardcoded secrets and debug artifacts. Local-only.",
-  {
-    path: z.string().default(".").describe("Directory to scan"),
-  },
-  async ({ path }) => {
-    const projectPath = resolve(path);
-    const config = loadConfig(projectPath);
-    const files = collectFiles(projectPath, [".ts", ".tsx", ".js", ".jsx"]);
-    const allFindings = [];
-    for (const file of files) {
-      const code = readFileSync(file, "utf-8");
-      const relPath = relative(projectPath, file);
-      const findings = runDetector(code, relPath, config.watchers);
-      allFindings.push(...findings);
-    }
-    if (allFindings.length === 0) {
-      return { content: [{ type: "text" as const, text: "No issues found." }] };
-    }
-    const lines = [`Found ${allFindings.length} issues:\n`];
-    for (const f of allFindings) {
-      const icon = f.severity === "critical" ? "!!" : f.severity === "warning" ? " !" : "  ";
-      const loc = f.line ? `:${f.line}` : "";
-      lines.push(`${icon} [${f.severity.toUpperCase()}] ${f.file}${loc}`);
-      lines.push(`   ${f.message}`);
-    }
-    return {
-      content: [{ type: "text" as const, text: lines.join("\n") }],
-    };
-  }
-);
-
-// Tool 5: composto_blastradius — Predict historical blast radius
-server.tool(
-  "composto_blastradius",
-  "Risk verdict (low/medium/high/unknown) for editing a file, from git history.",
-  {
-    file: z.string().describe("Repo-relative path of the file the agent intends to modify."),
-    intent: z.enum(["refactor", "bugfix", "feature", "test", "docs", "unknown"]).default("unknown").optional(),
-    level: z.enum(["summary", "detail"]).default("summary").optional(),
-    diff: z.string().optional().describe("Optional unified diff. When present, narrows blast radius to actually-touched symbols (Plan 4)."),
-  },
-  async ({ file, intent, level, diff }) => {
-    if (process.env.COMPOSTO_BLASTRADIUS !== "1") {
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify({
-          status: "disabled",
-          reason: "composto_blastradius is gated by COMPOSTO_BLASTRADIUS=1 during Plan 1 rollout.",
-        }) }],
-      };
-    }
-    const projectPath = resolve(".");
-    const dbPath = join(projectPath, ".composto", "memory.db");
-    const api = new MemoryAPI({ dbPath, repoPath: projectPath });
-    try {
-      await api.bootstrapIfNeeded();
-      const res = await api.blastradius({ file, intent, level, diff });
-      return { content: [{ type: "text" as const, text: JSON.stringify(res, null, 2) }] };
-    } finally {
-      await api.close();
-    }
   }
 );
 
