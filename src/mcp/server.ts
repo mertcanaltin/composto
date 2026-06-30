@@ -43,11 +43,22 @@ server.tool(
   "composto_ir",
   "Compressed AST-based IR for a file. ~89% fewer tokens than raw read.",
   {
-    file: z.string().describe("Path to the source file"),
+    file: z.string().optional().describe("Path to the source file"),
+    // Some clients send `path` instead of `file`; accept both for compatibility.
+    path: z.string().optional().describe("Alias for file path"),
     layer: z.enum(["L0", "L1", "L2", "L3"]).default("L1").describe("L0=structure only, L1=full IR (default), L2=delta context, L3=raw source"),
   },
-  async ({ file, layer }) => {
-    const filePath = resolve(file);
+  async ({ file, path, layer }) => {
+    const inputFile = file ?? path;
+    if (!inputFile) {
+      return {
+        content: [{
+          type: "text" as const,
+          text: "composto_ir requires a file path. Provide `file` (preferred) or `path`.",
+        }],
+      };
+    }
+    const filePath = resolve(inputFile);
     const code = readFileSync(filePath, "utf-8");
     const projectPath = resolve(".");
     const relPath = relative(projectPath, filePath);
